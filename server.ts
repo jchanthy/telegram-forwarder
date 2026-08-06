@@ -1,7 +1,6 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { createServer as createViteServer } from 'vite';
 import type {
   AppConfig,
   TargetDestination,
@@ -10,7 +9,7 @@ import type {
   BotInfo,
   SystemStatus,
   TargetResult,
-} from './src/types.ts';
+} from './src/types';
 
 const app = express();
 const PORT = 3000;
@@ -477,14 +476,59 @@ function stopPollingLoop() {
   isPollingRunning = false;
 }
 
-// Initial Bot check & start polling
-if (store.config.botToken && store.config.isPollingActive) {
+// Initial Bot check & start polling (only on persistent Node server, not on Vercel serverless)
+if (!process.env.VERCEL && store.config.botToken && store.config.isPollingActive) {
   fetchBotInfo().then(() => {
     startPollingLoop();
-  });
+  }).catch(() => {});
 }
 
+// Vercel Path Normalizer Middleware
+app.use((req, res, next) => {
+  if (process.env.VERCEL && !req.url.startsWith('/api') && !req.path.startsWith('/api')) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 // API Routes
+
+// Telegram Webhook Receiver
+app.post('/api/webhook', async (req, res) => {
+  try {
+    const update = req.body;
+    if (update && typeof update === 'object') {
+      await processIncomingUpdate(update);
+    }
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error('Webhook error:', err);
+    res.status(200).json({ ok: false, error: err.message });
+  }
+});
+
+// Setup Telegram Webhook API
+app.post('/api/webhook/setup', async (req, res) => {
+  try {
+    const { webhookUrl } = req.body;
+    const token = store.config.botToken;
+    if (!token) {
+      return res.status(400).json({ error: 'Please save a valid Bot Token first.' });
+    }
+    if (!webhookUrl) {
+      return res.status(400).json({ error: 'Webhook URL is required.' });
+    }
+    const result = await callTelegramApi('setWebhook', { url: webhookUrl });
+    store.config.isWebhookActive = true;
+    store.config.webhookUrl = webhookUrl;
+    store.config.isPollingActive = false;
+    stopPollingLoop();
+    saveStore();
+    res.json({ success: true, result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to setup webhook' });
+  }
+});
 
 // System Status
 app.get('/api/status', async (req, res) => {
@@ -893,13 +937,14 @@ app.all('/api/*', (req, res) => {
 
 // Vite & Static file serving setup
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (process.env.VERCEL !== '1') {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
