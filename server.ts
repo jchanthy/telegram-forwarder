@@ -20,11 +20,15 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Persistence file path
 const DATA_DIR = path.join(process.cwd(), 'data');
-const STORE_FILE = path.join(DATA_DIR, 'store.json');
+let STORE_FILE = path.join(DATA_DIR, 'store.json');
 
-// Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// Ensure data directory exists safely
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch {
+  STORE_FILE = path.join('/tmp', 'store.json');
 }
 
 // Initial default state
@@ -107,7 +111,12 @@ function saveStore() {
   try {
     fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Failed to save store:', err);
+    try {
+      STORE_FILE = path.join('/tmp', 'store.json');
+      fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
+    } catch (tmpErr) {
+      console.warn('In-memory store only (read-only filesystem):', tmpErr);
+    }
   }
 }
 
@@ -898,9 +907,15 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Telegram Forwarder Server running on http://0.0.0.0:${PORT}`);
-  });
+  if (process.env.VERCEL !== '1') {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Telegram Forwarder Server running on http://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
-startServer();
+if (process.env.VERCEL !== '1') {
+  startServer();
+}
+
+export default app;
