@@ -11,6 +11,39 @@ import { SetupGuideModal } from './components/SetupGuideModal';
 import { Send, Zap, ShieldCheck, Clock, CheckCircle2, AlertTriangle, Radio, Sparkles, ArrowRight, Bot, Key } from 'lucide-react';
 import type { SystemStatus, AppConfig, TargetDestination, ForwardingRule, ForwardLog, BotInfo, TargetResult } from './types';
 
+// Safe fetch helper to handle non-JSON or HTML error responses gracefully
+async function safeApiFetch<T = any>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, options);
+  const contentType = res.headers.get('content-type') || '';
+  
+  let data: any = null;
+  if (contentType.includes('application/json')) {
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!res.ok) {
+    if (data && data.error) {
+      throw new Error(data.error);
+    }
+    const text = !data ? (await res.text().catch(() => '')) : '';
+    if (text.startsWith('<') || text.toLowerCase().includes('the page')) {
+      throw new Error(`Server request failed (HTTP ${res.status}). Verify your Bot Token or network connection.`);
+    }
+    throw new Error(text || `Request failed with status ${res.status}`);
+  }
+
+  if (data !== null) return data;
+  try {
+    return await res.json();
+  } catch {
+    return {} as T;
+  }
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -28,15 +61,15 @@ export default function App() {
     setLoading(true);
     try {
       const [resStatus, resConfig, resTargets, resRules, resLogs] = await Promise.all([
-        fetch('/api/status').then(r => r.json()),
-        fetch('/api/config').then(r => r.json()),
-        fetch('/api/targets').then(r => r.json()),
-        fetch('/api/rules').then(r => r.json()),
-        fetch('/api/logs').then(r => r.json()),
+        safeApiFetch('/api/status').catch(() => null),
+        safeApiFetch('/api/config').catch(() => null),
+        safeApiFetch('/api/targets').catch(() => []),
+        safeApiFetch('/api/rules').catch(() => []),
+        safeApiFetch('/api/logs').catch(() => []),
       ]);
 
-      setStatus(resStatus);
-      setConfig(resConfig);
+      if (resStatus) setStatus(resStatus);
+      if (resConfig) setConfig(resConfig);
       setTargets(resTargets || []);
       setRules(resRules || []);
       setLogs(resLogs || []);
@@ -50,109 +83,82 @@ export default function App() {
   useEffect(() => {
     fetchData();
     const timer = setInterval(() => {
-      fetch('/api/status').then(r => r.json()).then(setStatus).catch(() => {});
-      fetch('/api/logs').then(r => r.json()).then(setLogs).catch(() => {});
+      safeApiFetch('/api/status').then(setStatus).catch(() => {});
+      safeApiFetch('/api/logs').then(setLogs).catch(() => {});
     }, 6000);
     return () => clearInterval(timer);
   }, []);
 
   // Handlers
   const handleSaveConfig = async (updated: Partial<AppConfig>) => {
-    const res = await fetch('/api/config', {
+    await safeApiFetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
     await fetchData();
   };
 
   const handleTestToken = async (token: string): Promise<BotInfo | null> => {
-    const res = await fetch('/api/bot/test', {
+    const data = await safeApiFetch('/api/bot/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
     return data.botInfo;
   };
 
   const handleAddTarget = async (targetData: Partial<TargetDestination>) => {
-    const res = await fetch('/api/targets', {
+    await safeApiFetch('/api/targets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(targetData),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
     await fetchData();
   };
 
   const handleUpdateTarget = async (id: string, updated: Partial<TargetDestination>) => {
-    const res = await fetch(`/api/targets/${id}`, {
+    await safeApiFetch(`/api/targets/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error);
-    }
     await fetchData();
   };
 
   const handleDeleteTarget = async (id: string) => {
-    const res = await fetch(`/api/targets/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error);
-    }
+    await safeApiFetch(`/api/targets/${id}`, { method: 'DELETE' });
     await fetchData();
   };
 
   const handleCheckPermissions = async (chatId: string) => {
-    const res = await fetch('/api/targets/check-permission', {
+    return safeApiFetch('/api/targets/check-permission', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chatId }),
     });
-    return res.json();
   };
 
   const handleAddRule = async (ruleData: Partial<ForwardingRule>) => {
-    const res = await fetch('/api/rules', {
+    await safeApiFetch('/api/rules', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ruleData),
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error);
-    }
     await fetchData();
   };
 
   const handleUpdateRule = async (id: string, updated: Partial<ForwardingRule>) => {
-    const res = await fetch(`/api/rules/${id}`, {
+    await safeApiFetch(`/api/rules/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updated),
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error);
-    }
     await fetchData();
   };
 
   const handleDeleteRule = async (id: string) => {
-    const res = await fetch(`/api/rules/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error);
-    }
+    await safeApiFetch(`/api/rules/${id}`, { method: 'DELETE' });
     await fetchData();
   };
 

@@ -120,25 +120,61 @@ let isPollingRunning = false;
 let pollingOffset = 0;
 let pollingTimer: NodeJS.Timeout | null = null;
 
+// Helper: Sanitize Telegram Bot Token
+function sanitizeBotToken(rawToken?: string): string {
+  if (!rawToken) return '';
+  let token = rawToken.trim().replace(/^["']|["']$/g, '');
+  // Strip leading "bot" prefix if user accidentally included it (e.g. "bot123456:ABC...")
+  if (token.toLowerCase().startsWith('bot')) {
+    token = token.substring(3).trim();
+  }
+  return token;
+}
+
 // Helper: Call Telegram API
 async function callTelegramApi(method: string, body?: Record<string, unknown>, overrideToken?: string) {
-  const token = overrideToken || store.config.botToken;
+  const token = sanitizeBotToken(overrideToken || store.config.botToken);
   if (!token) {
     throw new Error('Telegram Bot Token is not configured. Please enter a valid Bot Token in settings.');
   }
 
   const url = `https://api.telegram.org/bot${token}/${method}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const data = await response.json() as { ok: boolean; result?: any; description?: string; error_code?: number };
-  if (!data.ok) {
-    throw new Error(data.description || `Telegram API Error (${data.error_code || 'Unknown'})`);
+  
+  let response: Response;
+  try {
+    // 8-second timeout for Telegram API requests so cloud run proxies never time out
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (networkErr: any) {
+    if (networkErr.name === 'AbortError' || networkErr.name === 'TimeoutError') {
+      throw new Error('Telegram API connection timed out (8s). Please check network or try again.');
+    }
+    throw new Error(`Failed to connect to Telegram API: ${networkErr.message || 'Network error'}`);
   }
-  return data.result;
+
+  let text = '';
+  try {
+    text = await response.text();
+  } catch (readErr: any) {
+    throw new Error(`Failed to read response from Telegram: ${readErr.message}`);
+  }
+
+  try {
+    const data = JSON.parse(text) as { ok: boolean; result?: any; description?: string; error_code?: number };
+    if (!data.ok) {
+      throw new Error(data.description || `Telegram API Error (${data.error_code || 'Unknown'})`);
+    }
+    return data.result;
+  } catch (parseErr: any) {
+    if (text.startsWith('<') || text.toLowerCase().includes('the page')) {
+      throw new Error(`Invalid Bot Token format or Telegram API error (HTTP ${response.status}). Ensure token format is like 123456789:ABCdef...`);
+    }
+    throw parseErr;
+  }
 }
 
 // Fetch bot profile details
@@ -468,9 +504,12 @@ app.post('/api/config', async (req, res) => {
     const { botToken, isPollingActive, isWebhookActive, allowedAdminUsernames, requireAuth, globalHeader, globalFooter } = req.body;
 
     let tokenChanged = false;
-    if (botToken !== undefined && botToken !== store.config.botToken) {
-      store.config.botToken = botToken;
-      tokenChanged = true;
+    if (botToken !== undefined) {
+      const cleanToken = sanitizeBotToken(botToken);
+      if (cleanToken !== store.config.botToken) {
+        store.config.botToken = cleanToken;
+        tokenChanged = true;
+      }
     }
 
     if (isPollingActive !== undefined) store.config.isPollingActive = isPollingActive;
@@ -494,7 +533,7 @@ app.post('/api/config', async (req, res) => {
 
     res.json({ success: true, config: store.config, botInfo: cachedBotInfo });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: err.message || 'Failed to update config' });
   }
 });
 
@@ -502,13 +541,14 @@ app.post('/api/config', async (req, res) => {
 app.post('/api/bot/test', async (req, res) => {
   try {
     const { token } = req.body;
-    const bot = await fetchBotInfo(token || store.config.botToken);
+    const cleanToken = sanitizeBotToken(token);
+    const bot = await fetchBotInfo(cleanToken || store.config.botToken);
     if (!bot) {
-      return res.status(400).json({ error: 'Could not connect to Telegram API with the provided token.' });
+      return res.status(400).json({ error: 'Could not connect to Telegram API with the provided token. Verify your token is active.' });
     }
     res.json({ success: true, botInfo: bot });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: err.message || 'Token verification failed' });
   }
 });
 
