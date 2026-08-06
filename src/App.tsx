@@ -17,7 +17,7 @@ async function safeApiFetch<T = any>(url: string, options?: RequestInit): Promis
   try {
     res = await fetch(url, options);
   } catch (networkErr: any) {
-    throw new Error(`Failed to connect to backend server: ${networkErr.message || 'Network error'}`);
+    throw new Error(`Server connection error: ${networkErr.message || 'Unable to reach backend'}`);
   }
 
   const contentType = res.headers.get('content-type') || '';
@@ -35,11 +35,11 @@ async function safeApiFetch<T = any>(url: string, options?: RequestInit): Promis
     if (data && data.error) {
       throw new Error(data.error);
     }
-    const text = !data ? (await res.text().catch(() => '')) : '';
-    if (text.startsWith('<') || text.toLowerCase().includes('the page')) {
-      throw new Error(`Server returned status ${res.status}. Please check backend logs or verify your Bot Token.`);
+    if (res.status === 404) {
+      throw new Error('API endpoint or resource not found (404). Please verify your Bot Token.');
     }
-    throw new Error(text || `Request failed with status ${res.status}`);
+    const text = !data ? (await res.text().catch(() => '')) : '';
+    throw new Error(text || `Request failed with HTTP ${res.status}`);
   }
 
   if (data !== null) return data;

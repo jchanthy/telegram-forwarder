@@ -124,8 +124,8 @@ let pollingTimer: NodeJS.Timeout | null = null;
 function sanitizeBotToken(rawToken?: string): string {
   if (!rawToken) return '';
   let token = rawToken.trim().replace(/^["']|["']$/g, '');
-  // Strip leading "bot" prefix if user accidentally included it (e.g. "bot123456:ABC...")
-  if (token.toLowerCase().startsWith('bot')) {
+  // Strip leading "bot" prefix if user accidentally included it (e.g. "bot123456:ABC..." -> "123456:ABC...")
+  if (token.toLowerCase().startsWith('bot') && token.includes(':')) {
     token = token.substring(3).trim();
   }
   return token;
@@ -875,6 +875,11 @@ app.post('/api/logs/clear', (req, res) => {
   store.logs = [];
   saveStore();
   res.json({ success: true });
+});
+
+// Fallback JSON response for unknown API endpoints
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API endpoint ${req.method} ${req.path} not found.` });
 });
 
 // Vite & Static file serving setup
