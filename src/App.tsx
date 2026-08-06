@@ -13,7 +13,13 @@ import type { SystemStatus, AppConfig, TargetDestination, ForwardingRule, Forwar
 
 // Safe fetch helper to handle non-JSON or HTML error responses gracefully
 async function safeApiFetch<T = any>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
+  let res: Response;
+  try {
+    res = await fetch(url, options);
+  } catch (networkErr: any) {
+    throw new Error(`Failed to connect to backend server: ${networkErr.message || 'Network error'}`);
+  }
+
   const contentType = res.headers.get('content-type') || '';
   
   let data: any = null;
@@ -31,7 +37,7 @@ async function safeApiFetch<T = any>(url: string, options?: RequestInit): Promis
     }
     const text = !data ? (await res.text().catch(() => '')) : '';
     if (text.startsWith('<') || text.toLowerCase().includes('the page')) {
-      throw new Error(`Server request failed (HTTP ${res.status}). Verify your Bot Token or network connection.`);
+      throw new Error(`Server returned status ${res.status}. Please check backend logs or verify your Bot Token.`);
     }
     throw new Error(text || `Request failed with status ${res.status}`);
   }

@@ -163,18 +163,27 @@ async function callTelegramApi(method: string, body?: Record<string, unknown>, o
     throw new Error(`Failed to read response from Telegram: ${readErr.message}`);
   }
 
+  let data: any;
   try {
-    const data = JSON.parse(text) as { ok: boolean; result?: any; description?: string; error_code?: number };
-    if (!data.ok) {
-      throw new Error(data.description || `Telegram API Error (${data.error_code || 'Unknown'})`);
+    data = JSON.parse(text);
+  } catch {
+    if (response.status === 404 || text.toLowerCase().includes('not found')) {
+      throw new Error('Telegram API returned 404 Not Found. Your Bot Token is invalid or does not exist on Telegram.');
     }
-    return data.result;
-  } catch (parseErr: any) {
-    if (text.startsWith('<') || text.toLowerCase().includes('the page')) {
-      throw new Error(`Invalid Bot Token format or Telegram API error (HTTP ${response.status}). Ensure token format is like 123456789:ABCdef...`);
-    }
-    throw parseErr;
+    throw new Error(`Telegram API Error (HTTP ${response.status}). Ensure token format is like 123456789:ABCdef...`);
   }
+
+  if (!data.ok) {
+    if (data.error_code === 404 || data.description?.toLowerCase().includes('not found')) {
+      throw new Error('Telegram Bot Token is invalid or not found on Telegram. Please check the token copied from @BotFather.');
+    }
+    if (data.error_code === 401 || data.description?.toLowerCase().includes('unauthorized')) {
+      throw new Error('Telegram Bot Token is unauthorized. Please verify or regenerate your token with @BotFather.');
+    }
+    throw new Error(data.description || `Telegram API Error (${data.error_code || 'Unknown'})`);
+  }
+
+  return data.result;
 }
 
 // Fetch bot profile details
@@ -503,13 +512,23 @@ app.post('/api/config', async (req, res) => {
   try {
     const { botToken, isPollingActive, isWebhookActive, allowedAdminUsernames, requireAuth, globalHeader, globalFooter } = req.body;
 
-    let tokenChanged = false;
-    if (botToken !== undefined) {
+    if (botToken !== undefined && botToken.trim() !== '') {
       const cleanToken = sanitizeBotToken(botToken);
       if (cleanToken !== store.config.botToken) {
-        store.config.botToken = cleanToken;
-        tokenChanged = true;
+        // Validate with Telegram API first
+        try {
+          const testBot = await callTelegramApi('getMe', undefined, cleanToken);
+          cachedBotInfo = testBot as BotInfo;
+          lastBotCheckTime = Date.now();
+          store.config.botToken = cleanToken;
+        } catch (tokenErr: any) {
+          return res.status(400).json({ error: tokenErr.message || 'Invalid Telegram Bot Token.' });
+        }
       }
+    } else if (botToken === '') {
+      store.config.botToken = '';
+      cachedBotInfo = null;
+      stopPollingLoop();
     }
 
     if (isPollingActive !== undefined) store.config.isPollingActive = isPollingActive;
@@ -521,11 +540,7 @@ app.post('/api/config', async (req, res) => {
 
     saveStore();
 
-    if (tokenChanged || store.config.botToken) {
-      await fetchBotInfo();
-    }
-
-    if (store.config.isPollingActive) {
+    if (store.config.isPollingActive && store.config.botToken) {
       startPollingLoop();
     } else {
       stopPollingLoop();
@@ -542,10 +557,11 @@ app.post('/api/bot/test', async (req, res) => {
   try {
     const { token } = req.body;
     const cleanToken = sanitizeBotToken(token);
-    const bot = await fetchBotInfo(cleanToken || store.config.botToken);
-    if (!bot) {
-      return res.status(400).json({ error: 'Could not connect to Telegram API with the provided token. Verify your token is active.' });
+    const testToken = cleanToken || store.config.botToken;
+    if (!testToken) {
+      return res.status(400).json({ error: 'Please enter a Telegram Bot Token to test.' });
     }
+    const bot = await callTelegramApi('getMe', undefined, testToken);
     res.json({ success: true, botInfo: bot });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Token verification failed' });
