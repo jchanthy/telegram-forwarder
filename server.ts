@@ -1,0 +1,845 @@
+import express from 'express';
+import path from 'path';
+import fs from 'fs';
+import { createServer as createViteServer } from 'vite';
+import type {
+  AppConfig,
+  TargetDestination,
+  ForwardingRule,
+  ForwardLog,
+  BotInfo,
+  SystemStatus,
+  TargetResult,
+} from './src/types.ts';
+
+const app = express();
+const PORT = 3000;
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Persistence file path
+const DATA_DIR = path.join(process.cwd(), 'data');
+const STORE_FILE = path.join(DATA_DIR, 'store.json');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// Initial default state
+interface DataStore {
+  config: AppConfig;
+  targets: TargetDestination[];
+  rules: ForwardingRule[];
+  logs: ForwardLog[];
+  totalForwardedCount: number;
+}
+
+const defaultStore: DataStore = {
+  config: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    isPollingActive: true,
+    isWebhookActive: false,
+    webhookUrl: '',
+    allowedAdminUsernames: [],
+    requireAuth: false,
+    autoForwardAll: true,
+    defaultMode: 'copy',
+    globalHeader: '',
+    globalFooter: ' forwarded via Bot',
+  },
+  targets: [
+    {
+      id: 'target-sample-1',
+      name: 'Main Announcement Channel',
+      chatId: '@sample_broadcast_channel',
+      isChannel: true,
+      isActive: true,
+      forwardMode: 'copy',
+      customFooter: '\n\n📢 Join our official channel for more updates!',
+      createdAt: new Date().toISOString(),
+    },
+  ],
+  rules: [
+    {
+      id: 'rule-sample-1',
+      name: 'Default Auto Forward Rule',
+      isActive: true,
+      sourceFilter: 'all',
+      contentType: 'all',
+      includeKeywords: [],
+      excludeKeywords: ['[spam]', '#ignore'],
+      replaceWords: [],
+      appendSignature: '',
+      targetIds: [], // Empty means all active targets
+      createdAt: new Date().toISOString(),
+    },
+  ],
+  logs: [],
+  totalForwardedCount: 0,
+};
+
+// Load or initialize store
+let store: DataStore = defaultStore;
+
+function loadStore() {
+  try {
+    if (fs.existsSync(STORE_FILE)) {
+      const data = fs.readFileSync(STORE_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      store = {
+        config: { ...defaultStore.config, ...parsed.config },
+        targets: parsed.targets || defaultStore.targets,
+        rules: parsed.rules || defaultStore.rules,
+        logs: parsed.logs || [],
+        totalForwardedCount: parsed.totalForwardedCount || 0,
+      };
+    } else {
+      saveStore();
+    }
+  } catch (err) {
+    console.error('Failed to load store, using default:', err);
+  }
+}
+
+function saveStore() {
+  try {
+    fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save store:', err);
+  }
+}
+
+loadStore();
+
+// Cached Telegram Bot info
+let cachedBotInfo: BotInfo | null = null;
+let lastBotCheckTime = 0;
+let isPollingRunning = false;
+let pollingOffset = 0;
+let pollingTimer: NodeJS.Timeout | null = null;
+
+// Helper: Call Telegram API
+async function callTelegramApi(method: string, body?: Record<string, unknown>, overrideToken?: string) {
+  const token = overrideToken || store.config.botToken;
+  if (!token) {
+    throw new Error('Telegram Bot Token is not configured. Please enter a valid Bot Token in settings.');
+  }
+
+  const url = `https://api.telegram.org/bot${token}/${method}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await response.json() as { ok: boolean; result?: any; description?: string; error_code?: number };
+  if (!data.ok) {
+    throw new Error(data.description || `Telegram API Error (${data.error_code || 'Unknown'})`);
+  }
+  return data.result;
+}
+
+// Fetch bot profile details
+async function fetchBotInfo(token?: string): Promise<BotInfo | null> {
+  try {
+    const res = await callTelegramApi('getMe', undefined, token);
+    cachedBotInfo = res as BotInfo;
+    lastBotCheckTime = Date.now();
+    return cachedBotInfo;
+  } catch (err: any) {
+    console.error('Failed to fetch bot info:', err.message);
+    cachedBotInfo = null;
+    return null;
+  }
+}
+
+// Process incoming Telegram update
+async function processIncomingUpdate(update: any) {
+  const message = update.message || update.channel_post;
+  if (!message) return;
+
+  const chatId = message.chat?.id;
+  const fromUser = message.from;
+  const username = fromUser?.username ? `@${fromUser.username}` : undefined;
+  const senderName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || fromUser?.username || 'Unknown Sender';
+  const sourceTitle = message.chat?.title || message.forward_from_chat?.title || senderName;
+
+  // Verify auth if required
+  if (store.config.requireAuth && store.config.allowedAdminUsernames.length > 0) {
+    const isAllowed = username && store.config.allowedAdminUsernames.some(u => 
+      u.toLowerCase() === username.toLowerCase() || u.toLowerCase() === username.replace('@', '').toLowerCase()
+    );
+    if (!isAllowed) {
+      console.log(`Skipping update from unauthorized user ${username}`);
+      return;
+    }
+  }
+
+  // Determine message type & text snippet
+  let messageType: ForwardLog['messageType'] = 'text';
+  let rawText = message.text || message.caption || '';
+
+  if (message.photo) messageType = 'photo';
+  else if (message.video) messageType = 'video';
+  else if (message.document) messageType = 'document';
+  else if (message.audio) messageType = 'audio';
+  else if (message.sticker) messageType = 'sticker';
+  else if (!message.text) messageType = 'other';
+
+  const snippet = rawText ? rawText.substring(0, 100) : `[${messageType.toUpperCase()} message]`;
+
+  // Filter active targets and applicable rules
+  const activeTargets = store.targets.filter(t => t.isActive);
+  if (activeTargets.length === 0) {
+    const logEntry: ForwardLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      sourceChatTitle: sourceTitle,
+      sourceSenderName: senderName,
+      sourceSenderUsername: username,
+      sourceSenderId: fromUser?.id,
+      messageType,
+      messageSnippet: snippet,
+      originalMessageId: message.message_id,
+      targetResults: [],
+      overallStatus: 'failed',
+    };
+    store.logs.unshift(logEntry);
+    if (store.logs.length > 200) store.logs.pop();
+    saveStore();
+    return;
+  }
+
+  // Active rules evaluation
+  const activeRules = store.rules.filter(r => r.isActive);
+  let shouldForward = true;
+  let textTransform = rawText;
+  let ruleAppendSignature = '';
+
+  for (const rule of activeRules) {
+    // Content type check
+    if (rule.contentType !== 'all' && rule.contentType !== messageType) {
+      continue;
+    }
+
+    // Include keywords check
+    if (rule.includeKeywords && rule.includeKeywords.length > 0) {
+      const match = rule.includeKeywords.some(kw => rawText.toLowerCase().includes(kw.toLowerCase()));
+      if (!match) {
+        shouldForward = false;
+        break;
+      }
+    }
+
+    // Exclude keywords check
+    if (rule.excludeKeywords && rule.excludeKeywords.length > 0) {
+      const match = rule.excludeKeywords.some(kw => rawText.toLowerCase().includes(kw.toLowerCase()));
+      if (match) {
+        shouldForward = false;
+        break;
+      }
+    }
+
+    // Word replacements
+    if (rule.replaceWords && rule.replaceWords.length > 0) {
+      for (const rw of rule.replaceWords) {
+        if (rw.find) {
+          const regex = new RegExp(rw.find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          textTransform = textTransform.replace(regex, rw.replaceWith || '');
+        }
+      }
+    }
+
+    if (rule.appendSignature) {
+      ruleAppendSignature += '\n' + rule.appendSignature;
+    }
+  }
+
+  if (!shouldForward) {
+    console.log('Message filtered out by forwarding rules.');
+    return;
+  }
+
+  // Forward to targets
+  const targetResults: TargetResult[] = [];
+  let successCount = 0;
+
+  for (const target of activeTargets) {
+    try {
+      let resultMsgId: number | undefined;
+
+      if (target.forwardMode === 'native' as any || target.forwardMode === 'forward') {
+        // Native Telegram forwardMessage
+        const res = await callTelegramApi('forwardMessage', {
+          chat_id: target.chatId,
+          from_chat_id: chatId,
+          message_id: message.message_id,
+        });
+        resultMsgId = res.message_id;
+      } else {
+        // Copy Mode: Clean copy with headers / footers / text modifications
+        let finalCaptionOrText = textTransform;
+
+        if (target.customHeader) {
+          finalCaptionOrText = `${target.customHeader}\n\n${finalCaptionOrText}`;
+        }
+        if (target.customFooter || ruleAppendSignature || store.config.globalFooter) {
+          const footerStr = [target.customFooter, ruleAppendSignature, store.config.globalFooter].filter(Boolean).join('\n');
+          finalCaptionOrText = `${finalCaptionOrText}\n\n${footerStr}`;
+        }
+
+        if (target.removeLinks) {
+          finalCaptionOrText = finalCaptionOrText.replace(/https?:\/\/[^\s]+/g, '');
+        }
+        if (target.removeUsernames) {
+          finalCaptionOrText = finalCaptionOrText.replace(/@[a-zA-Z0-0_]+/g, '');
+        }
+
+        // Use Telegram copyMessage API (copies media & formatted text cleanly)
+        const copyPayload: Record<string, unknown> = {
+          chat_id: target.chatId,
+          from_chat_id: chatId,
+          message_id: message.message_id,
+        };
+
+        if (finalCaptionOrText.trim() !== rawText.trim()) {
+          copyPayload.caption = finalCaptionOrText.trim();
+        }
+
+        try {
+          const res = await callTelegramApi('copyMessage', copyPayload);
+          resultMsgId = typeof res === 'number' ? res : res.message_id;
+        } catch (copyErr: any) {
+          // Fallback to sendMessage if text-only
+          if (messageType === 'text') {
+            const res = await callTelegramApi('sendMessage', {
+              chat_id: target.chatId,
+              text: finalCaptionOrText || rawText || 'Broadcast',
+              parse_mode: 'HTML',
+            });
+            resultMsgId = res.message_id;
+          } else {
+            throw copyErr;
+          }
+        }
+      }
+
+      targetResults.push({
+        targetId: target.id,
+        targetName: target.name,
+        chatId: target.chatId,
+        success: true,
+        messageId: resultMsgId,
+      });
+      successCount++;
+    } catch (err: any) {
+      targetResults.push({
+        targetId: target.id,
+        targetName: target.name,
+        chatId: target.chatId,
+        success: false,
+        errorDetails: err.message || 'Failed to post to channel',
+      });
+    }
+  }
+
+  let overallStatus: ForwardLog['overallStatus'] = 'failed';
+  if (successCount === activeTargets.length && successCount > 0) {
+    overallStatus = 'success';
+  } else if (successCount > 0) {
+    overallStatus = 'partial';
+  }
+
+  const logEntry: ForwardLog = {
+    id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    sourceChatTitle: sourceTitle,
+    sourceSenderName: senderName,
+    sourceSenderUsername: username,
+    sourceSenderId: fromUser?.id,
+    messageType,
+    messageSnippet: snippet,
+    originalMessageId: message.message_id,
+    targetResults,
+    overallStatus,
+  };
+
+  store.logs.unshift(logEntry);
+  if (store.logs.length > 200) store.logs.pop();
+  if (successCount > 0) {
+    store.totalForwardedCount += successCount;
+  }
+  saveStore();
+}
+
+// Background Telegram Polling Loop
+function startPollingLoop() {
+  if (isPollingRunning) return;
+  isPollingRunning = true;
+
+  async function poll() {
+    if (!store.config.isPollingActive || !store.config.botToken) {
+      isPollingRunning = false;
+      return;
+    }
+
+    try {
+      const updates = await callTelegramApi('getUpdates', {
+        offset: pollingOffset,
+        timeout: 5,
+        allowed_updates: ['message', 'channel_post'],
+      });
+
+      if (Array.isArray(updates) && updates.length > 0) {
+        for (const update of updates) {
+          pollingOffset = update.update_id + 1;
+          await processIncomingUpdate(update);
+        }
+      }
+    } catch (err: any) {
+      // Ignore routine polling timeouts or minor errors
+      if (!err.message?.includes('timeout')) {
+        console.warn('Polling check error:', err.message);
+      }
+    }
+
+    if (store.config.isPollingActive) {
+      pollingTimer = setTimeout(poll, 2000);
+    } else {
+      isPollingRunning = false;
+    }
+  }
+
+  poll();
+}
+
+function stopPollingLoop() {
+  if (pollingTimer) {
+    clearTimeout(pollingTimer);
+    pollingTimer = null;
+  }
+  isPollingRunning = false;
+}
+
+// Initial Bot check & start polling
+if (store.config.botToken && store.config.isPollingActive) {
+  fetchBotInfo().then(() => {
+    startPollingLoop();
+  });
+}
+
+// API Routes
+
+// System Status
+app.get('/api/status', async (req, res) => {
+  if (store.config.botToken && (!cachedBotInfo || Date.now() - lastBotCheckTime > 60000)) {
+    await fetchBotInfo();
+  }
+
+  const status: SystemStatus = {
+    botConnected: !!cachedBotInfo,
+    botInfo: cachedBotInfo,
+    pollingActive: store.config.isPollingActive,
+    webhookActive: store.config.isWebhookActive,
+    totalForwardedCount: store.totalForwardedCount,
+    activeTargetsCount: store.targets.filter(t => t.isActive).length,
+    activeRulesCount: store.rules.filter(r => r.isActive).length,
+    lastActiveTime: store.logs[0]?.timestamp,
+    appUrl: process.env.APP_URL || `http://localhost:${PORT}`,
+  };
+
+  res.json(status);
+});
+
+// App Config
+app.get('/api/config', (req, res) => {
+  res.json({
+    ...store.config,
+    botTokenMasked: store.config.botToken
+      ? store.config.botToken.substring(0, 8) + '...' + store.config.botToken.slice(-4)
+      : '',
+  });
+});
+
+app.post('/api/config', async (req, res) => {
+  try {
+    const { botToken, isPollingActive, isWebhookActive, allowedAdminUsernames, requireAuth, globalHeader, globalFooter } = req.body;
+
+    let tokenChanged = false;
+    if (botToken !== undefined && botToken !== store.config.botToken) {
+      store.config.botToken = botToken;
+      tokenChanged = true;
+    }
+
+    if (isPollingActive !== undefined) store.config.isPollingActive = isPollingActive;
+    if (isWebhookActive !== undefined) store.config.isWebhookActive = isWebhookActive;
+    if (allowedAdminUsernames !== undefined) store.config.allowedAdminUsernames = allowedAdminUsernames;
+    if (requireAuth !== undefined) store.config.requireAuth = requireAuth;
+    if (globalHeader !== undefined) store.config.globalHeader = globalHeader;
+    if (globalFooter !== undefined) store.config.globalFooter = globalFooter;
+
+    saveStore();
+
+    if (tokenChanged || store.config.botToken) {
+      await fetchBotInfo();
+    }
+
+    if (store.config.isPollingActive) {
+      startPollingLoop();
+    } else {
+      stopPollingLoop();
+    }
+
+    res.json({ success: true, config: store.config, botInfo: cachedBotInfo });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Test Bot Token Connection
+app.post('/api/bot/test', async (req, res) => {
+  try {
+    const { token } = req.body;
+    const bot = await fetchBotInfo(token || store.config.botToken);
+    if (!bot) {
+      return res.status(400).json({ error: 'Could not connect to Telegram API with the provided token.' });
+    }
+    res.json({ success: true, botInfo: bot });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Target Destinations
+app.get('/api/targets', (req, res) => {
+  res.json(store.targets);
+});
+
+app.post('/api/targets', async (req, res) => {
+  try {
+    const { name, chatId, isChannel, forwardMode, customHeader, customFooter, removeLinks, removeUsernames } = req.body;
+
+    if (!chatId) {
+      return res.status(400).json({ error: 'Chat ID or Channel Username is required.' });
+    }
+
+    const cleanChatId = chatId.trim();
+
+    // Verify Chat via Telegram API if bot token is active
+    let chatDetails: any = null;
+    if (store.config.botToken) {
+      try {
+        chatDetails = await callTelegramApi('getChat', { chat_id: cleanChatId });
+      } catch (err: any) {
+        console.warn('Could not verify getChat:', err.message);
+      }
+    }
+
+    const newTarget: TargetDestination = {
+      id: `target-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      name: name || chatDetails?.title || cleanChatId,
+      chatId: cleanChatId,
+      isChannel: isChannel ?? (chatDetails?.type === 'channel' || cleanChatId.startsWith('@')),
+      isActive: true,
+      forwardMode: forwardMode || 'copy',
+      customHeader: customHeader || '',
+      customFooter: customFooter || '',
+      removeLinks: !!removeLinks,
+      removeUsernames: !!removeUsernames,
+      createdAt: new Date().toISOString(),
+    };
+
+    store.targets.push(newTarget);
+    saveStore();
+
+    res.json({ success: true, target: newTarget, chatDetails });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/targets/:id', (req, res) => {
+  const index = store.targets.findIndex(t => t.id === req.params.id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Target destination not found.' });
+  }
+
+  store.targets[index] = {
+    ...store.targets[index],
+    ...req.body,
+  };
+  saveStore();
+  res.json(store.targets[index]);
+});
+
+app.delete('/api/targets/:id', (req, res) => {
+  store.targets = store.targets.filter(t => t.id !== req.params.id);
+  saveStore();
+  res.json({ success: true });
+});
+
+// Test Chat / Channel Admin Permission
+app.post('/api/targets/check-permission', async (req, res) => {
+  try {
+    const { chatId } = req.body;
+    if (!chatId) return res.status(400).json({ error: 'Chat ID required' });
+
+    const chat = await callTelegramApi('getChat', { chat_id: chatId });
+    let isMemberOrAdmin = false;
+
+    if (cachedBotInfo) {
+      try {
+        const member = await callTelegramApi('getChatMember', { chat_id: chatId, user_id: cachedBotInfo.id });
+        isMemberOrAdmin = ['administrator', 'creator', 'member'].includes(member.status);
+      } catch (err) {
+        // Some public channels don't allow getChatMember, but getChat working is a good indicator
+        isMemberOrAdmin = true;
+      }
+    }
+
+    res.json({ success: true, chat, isMemberOrAdmin });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Rules CRUD
+app.get('/api/rules', (req, res) => {
+  res.json(store.rules);
+});
+
+app.post('/api/rules', (req, res) => {
+  const newRule: ForwardingRule = {
+    id: `rule-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    name: req.body.name || 'Custom Rule',
+    isActive: true,
+    sourceFilter: req.body.sourceFilter || 'all',
+    allowedSources: req.body.allowedSources || [],
+    contentType: req.body.contentType || 'all',
+    includeKeywords: req.body.includeKeywords || [],
+    excludeKeywords: req.body.excludeKeywords || [],
+    replaceWords: req.body.replaceWords || [],
+    appendSignature: req.body.appendSignature || '',
+    targetIds: req.body.targetIds || [],
+    createdAt: new Date().toISOString(),
+  };
+
+  store.rules.push(newRule);
+  saveStore();
+  res.json(newRule);
+});
+
+app.put('/api/rules/:id', (req, res) => {
+  const index = store.rules.findIndex(r => r.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: 'Rule not found' });
+
+  store.rules[index] = { ...store.rules[index], ...req.body };
+  saveStore();
+  res.json(store.rules[index]);
+});
+
+app.delete('/api/rules/:id', (req, res) => {
+  store.rules = store.rules.filter(r => r.id !== req.params.id);
+  saveStore();
+  res.json({ success: true });
+});
+
+// Broadcast / Manual Post Tester
+app.post('/api/test-forward', async (req, res) => {
+  try {
+    const { text, targetIds, customHeader, customFooter, mode } = req.body;
+    if (!text) return res.status(400).json({ error: 'Message text is required.' });
+
+    const selectedTargets = targetIds && targetIds.length > 0
+      ? store.targets.filter(t => targetIds.includes(t.id) && t.isActive)
+      : store.targets.filter(t => t.isActive);
+
+    if (selectedTargets.length === 0) {
+      return res.status(400).json({ error: 'No active target channels or groups selected.' });
+    }
+
+    const results: TargetResult[] = [];
+    let successCount = 0;
+
+    for (const target of selectedTargets) {
+      try {
+        let content = text;
+        const header = customHeader || target.customHeader;
+        const footer = customFooter || target.customFooter || store.config.globalFooter;
+
+        if (header) content = `${header}\n\n${content}`;
+        if (footer) content = `${content}\n\n${footer}`;
+
+        const msgRes = await callTelegramApi('sendMessage', {
+          chat_id: target.chatId,
+          text: content,
+          parse_mode: 'HTML',
+        });
+
+        results.push({
+          targetId: target.id,
+          targetName: target.name,
+          chatId: target.chatId,
+          success: true,
+          messageId: msgRes.message_id,
+        });
+        successCount++;
+      } catch (err: any) {
+        results.push({
+          targetId: target.id,
+          targetName: target.name,
+          chatId: target.chatId,
+          success: false,
+          errorDetails: err.message,
+        });
+      }
+    }
+
+    // Log manual post
+    const logEntry: ForwardLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      sourceChatTitle: 'Web Dashboard Manual Post',
+      sourceSenderName: 'Admin Web Tester',
+      messageType: 'text',
+      messageSnippet: text.substring(0, 100),
+      targetResults: results,
+      overallStatus: successCount === selectedTargets.length ? 'success' : successCount > 0 ? 'partial' : 'failed',
+    };
+
+    store.logs.unshift(logEntry);
+    if (store.logs.length > 200) store.logs.pop();
+    if (successCount > 0) store.totalForwardedCount += successCount;
+    saveStore();
+
+    res.json({ success: true, results, successCount, total: selectedTargets.length });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Interactive Simulator (Simulate Telegram incoming DM/forward message in the browser)
+app.post('/api/simulate-incoming', async (req, res) => {
+  try {
+    const { text, senderName, senderUsername, isForwarded, forwardSourceTitle, messageType } = req.body;
+
+    const simulatedUpdate = {
+      update_id: Math.floor(Math.random() * 1000000),
+      message: {
+        message_id: Math.floor(Math.random() * 10000),
+        from: {
+          id: 999888777,
+          is_bot: false,
+          first_name: senderName || 'Demo User',
+          username: senderUsername || 'demouser',
+        },
+        chat: {
+          id: 999888777,
+          first_name: senderName || 'Demo User',
+          type: 'private',
+        },
+        date: Math.floor(Date.now() / 1000),
+        text: messageType === 'text' || !messageType ? text || 'Sample test forward post' : undefined,
+        caption: messageType !== 'text' ? text : undefined,
+        forward_from_chat: isForwarded ? {
+          id: -100111222333,
+          title: forwardSourceTitle || 'Source Tech News Channel',
+          type: 'channel',
+          username: 'sourcetechnews',
+        } : undefined,
+        photo: messageType === 'photo' ? [{ file_id: 'photo_mock_id' }] : undefined,
+        video: messageType === 'video' ? { file_id: 'video_mock_id' } : undefined,
+        document: messageType === 'document' ? { file_id: 'doc_mock_id', file_name: 'report.pdf' } : undefined,
+      },
+    };
+
+    await processIncomingUpdate(simulatedUpdate);
+    res.json({ success: true, message: 'Simulated incoming message processed successfully!' });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Telegram Webhook Handler
+app.post('/api/telegram/webhook', async (req, res) => {
+  try {
+    await processIncomingUpdate(req.body);
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('Webhook error:', err);
+    res.sendStatus(200); // Always respond 200 to Telegram webhook so it doesn't retry infinitely
+  }
+});
+
+// Configure Webhook
+app.post('/api/telegram/set-webhook', async (req, res) => {
+  try {
+    const appUrl = process.env.APP_URL || req.body.appUrl;
+    if (!appUrl) {
+      return res.status(400).json({ error: 'App URL is missing for setting webhook.' });
+    }
+
+    const webhookUrl = `${appUrl.replace(/\/$/, '')}/api/telegram/webhook`;
+    const result = await callTelegramApi('setWebhook', { url: webhookUrl });
+
+    store.config.isWebhookActive = true;
+    store.config.isPollingActive = false;
+    store.config.webhookUrl = webhookUrl;
+    stopPollingLoop();
+    saveStore();
+
+    res.json({ success: true, result, webhookUrl });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/telegram/delete-webhook', async (req, res) => {
+  try {
+    const result = await callTelegramApi('deleteWebhook', { drop_pending_updates: false });
+    store.config.isWebhookActive = false;
+    store.config.isPollingActive = true;
+    saveStore();
+    startPollingLoop();
+
+    res.json({ success: true, result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Activity Logs
+app.get('/api/logs', (req, res) => {
+  res.json(store.logs);
+});
+
+app.post('/api/logs/clear', (req, res) => {
+  store.logs = [];
+  saveStore();
+  res.json({ success: true });
+});
+
+// Vite & Static file serving setup
+async function startServer() {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Telegram Forwarder Server running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+startServer();

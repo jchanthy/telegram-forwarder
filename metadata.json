@@ -1,0 +1,6 @@
+{
+  "name": "Telegram Auto Forwarder Bot",
+  "description": "Automate forwarding and broadcasting Telegram messages, posts, and media from private chats or channels to target groups and channels with custom rules, filtering, and real-time logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
