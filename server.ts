@@ -496,13 +496,7 @@ if (!IS_VERCEL && store.config.botToken && store.config.isPollingActive) {
   }).catch(() => {});
 }
 
-// Vercel Path Normalizer Middleware
-app.use((req, res, next) => {
-  if (process.env.VERCEL && !req.url.startsWith('/api') && !req.path.startsWith('/api')) {
-    req.url = '/api' + req.url;
-  }
-  next();
-});
+
 
 // API Routes
 
@@ -950,14 +944,14 @@ app.all('/api/*', (req, res) => {
 
 // Vite & Static file serving setup
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production' && process.env.VERCEL !== '1') {
+  if (process.env.NODE_ENV !== 'production' && !IS_VERCEL) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else if (process.env.VERCEL !== '1') {
+  } else if (!IS_VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -965,14 +959,14 @@ async function startServer() {
     });
   }
 
-  if (process.env.VERCEL !== '1') {
+  if (!IS_VERCEL) {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Telegram Forwarder Server running on http://0.0.0.0:${PORT}`);
     });
   }
 }
 
-if (process.env.VERCEL !== '1') {
+if (!IS_VERCEL) {
   startServer();
 }
 
