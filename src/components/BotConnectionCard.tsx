@@ -25,6 +25,8 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
   const [globalHeader, setGlobalHeader] = useState('');
   const [globalFooter, setGlobalFooter] = useState('');
 
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<BotInfo | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
@@ -74,6 +76,7 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
 
       await onSaveConfig({
         ...(tokenToSave ? { botToken: tokenToSave } : {}),
+        ...(adminPasswordInput !== '' ? { adminPassword: adminPasswordInput } : {}),
         allowedAdminUsernames: usersArray,
         requireAuth,
         isPollingActive,
@@ -277,6 +280,37 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
               />
             </div>
           )}
+        </div>
+
+        {/* Admin Dashboard Password Protection */}
+        <div className="border-t border-slate-800 pt-6 space-y-4">
+          <div>
+            <h4 className="text-sm font-semibold text-slate-200 flex items-center space-x-2">
+              <ShieldAlert className="w-4 h-4 text-amber-400" />
+              <span>Admin Web Dashboard Lock</span>
+            </h4>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Set a secret password to prevent unauthorized visitors from editing your bot token, channels, or settings.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+              Dashboard Admin Password
+            </label>
+            <input
+              type="password"
+              value={adminPasswordInput}
+              onChange={(e) => setAdminPasswordInput(e.target.value)}
+              placeholder={config?.isDashboardProtected ? '•••••••• (Password Enabled)' : 'Set password to lock dashboard'}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
+            />
+            <p className="text-[11px] text-slate-400">
+              {config?.isDashboardProtected
+                ? '🔒 Dashboard access is password protected.'
+                : '🔓 Anyone with your URL can edit settings. Enter a password above to lock it.'}
+            </p>
+          </div>
         </div>
 
         {/* Global Footer & Header Appends */}

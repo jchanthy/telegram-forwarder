@@ -7,6 +7,7 @@ import { BroadcastTester } from './components/BroadcastTester';
 import { InteractiveSimulator } from './components/InteractiveSimulator';
 import { ActivityLogs } from './components/ActivityLogs';
 import { SetupGuideModal } from './components/SetupGuideModal';
+import { AuthModal } from './components/AuthModal';
 
 import { Send, Zap, ShieldCheck, Clock, CheckCircle2, AlertTriangle, Radio, Sparkles, ArrowRight, Bot, Key } from 'lucide-react';
 import type { SystemStatus, AppConfig, TargetDestination, ForwardingRule, ForwardLog, BotInfo, TargetResult } from './types';
@@ -53,6 +54,7 @@ async function safeApiFetch<T = any>(url: string, options?: RequestInit): Promis
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
 
   // System State
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -75,7 +77,12 @@ export default function App() {
       ]);
 
       if (resStatus) setStatus(resStatus);
-      if (resConfig) setConfig(resConfig);
+      if (resConfig) {
+        setConfig(resConfig);
+        if (resConfig.isDashboardProtected && sessionStorage.getItem('admin_authenticated') !== 'true') {
+          setIsAuthenticated(false);
+        }
+      }
       setTargets(resTargets || []);
       setRules(resRules || []);
       setLogs(resLogs || []);
@@ -83,6 +90,24 @@ export default function App() {
       console.error('Failed to fetch data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLogin = async (password: string): Promise<boolean> => {
+    try {
+      const res = await safeApiFetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (res.success) {
+        sessionStorage.setItem('admin_authenticated', 'true');
+        setIsAuthenticated(true);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
   };
 
@@ -511,6 +536,9 @@ export default function App() {
 
       {/* Setup Guide Modal */}
       <SetupGuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} />
+
+      {/* Auth Password Protection Modal */}
+      <AuthModal isOpen={!isAuthenticated} onLogin={handleLogin} />
     </div>
   );
 }

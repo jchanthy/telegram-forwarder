@@ -54,6 +54,8 @@ const defaultStore: DataStore = {
     defaultMode: 'copy',
     globalHeader: '',
     globalFooter: ' forwarded via Bot',
+    adminPassword: process.env.ADMIN_PASSWORD || '',
+    isDashboardProtected: !!process.env.ADMIN_PASSWORD,
   },
   targets: [
     {
@@ -555,15 +557,34 @@ app.get('/api/status', async (req, res) => {
 app.get('/api/config', (req, res) => {
   res.json({
     ...store.config,
+    adminPassword: undefined, // Never expose plain password to frontend
+    isDashboardProtected: !!store.config.adminPassword,
     botTokenMasked: store.config.botToken
       ? store.config.botToken.substring(0, 8) + '...' + store.config.botToken.slice(-4)
       : '',
   });
 });
 
+// Admin Auth Verification
+app.post('/api/auth/login', (req, res) => {
+  const { password } = req.body;
+  if (!store.config.adminPassword) {
+    return res.json({ success: true, message: 'No password set' });
+  }
+  if (password === store.config.adminPassword) {
+    return res.json({ success: true });
+  }
+  return res.status(401).json({ error: 'Invalid admin password' });
+});
+
 app.post('/api/config', async (req, res) => {
   try {
-    const { botToken, isPollingActive, isWebhookActive, allowedAdminUsernames, requireAuth, globalHeader, globalFooter } = req.body;
+    const { botToken, isPollingActive, isWebhookActive, allowedAdminUsernames, requireAuth, globalHeader, globalFooter, adminPassword } = req.body;
+
+    if (adminPassword !== undefined) {
+      store.config.adminPassword = adminPassword.trim();
+      store.config.isDashboardProtected = !!adminPassword.trim();
+    }
 
     if (botToken !== undefined && botToken.trim() !== '') {
       const cleanToken = sanitizeBotToken(botToken);
@@ -599,7 +620,14 @@ app.post('/api/config', async (req, res) => {
       stopPollingLoop();
     }
 
-    res.json({ success: true, config: store.config, botInfo: cachedBotInfo });
+    res.json({
+      success: true,
+      config: {
+        ...store.config,
+        adminPassword: undefined,
+      },
+      botInfo: cachedBotInfo,
+    });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to update config' });
   }

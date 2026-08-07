@@ -73,6 +73,8 @@ export interface AppConfig {
   defaultMode: ForwardMode;
   globalHeader?: string;
   globalFooter?: string;
+  adminPassword?: string;
+  isDashboardProtected?: boolean;
 }
 
 export interface SystemStatus {
