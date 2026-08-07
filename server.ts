@@ -18,7 +18,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Persistence file path
-const IS_VERCEL = !!(process.env.VERCEL || process.env.VERCEL_ENV || process.env.NOW_BUILDER);
+const IS_VERCEL = !!(process.env.VERCEL || process.env.VERCEL_ENV || process.env.NOW_BUILDER || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
 const DATA_DIR = IS_VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
 let STORE_FILE = path.join(DATA_DIR, 'store.json');
 
@@ -90,6 +90,7 @@ const defaultStore: DataStore = {
 let store: DataStore = defaultStore;
 
 function loadStore() {
+  if (IS_VERCEL) return;
   try {
     if (fs.existsSync(STORE_FILE)) {
       const data = fs.readFileSync(STORE_FILE, 'utf-8');
