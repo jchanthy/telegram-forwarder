@@ -70,8 +70,10 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
         .map(u => u.trim())
         .filter(Boolean);
 
+      const tokenToSave = tokenInput.trim() || (testResult ? tokenInput : undefined);
+
       await onSaveConfig({
-        ...(tokenInput ? { botToken: tokenInput } : {}),
+        ...(tokenToSave ? { botToken: tokenToSave } : {}),
         allowedAdminUsernames: usersArray,
         requireAuth,
         isPollingActive,
