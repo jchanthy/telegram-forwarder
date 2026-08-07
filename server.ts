@@ -529,7 +529,11 @@ app.post('/api/webhook/setup', async (req, res) => {
 // System Status
 app.get('/api/status', async (req, res) => {
   if (store.config.botToken && (!cachedBotInfo || Date.now() - lastBotCheckTime > 60000)) {
-    await fetchBotInfo();
+    try {
+      await fetchBotInfo();
+    } catch {
+      // ignore status check failure
+    }
   }
 
   const status: SystemStatus = {
