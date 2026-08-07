@@ -101,8 +101,6 @@ function loadStore() {
         logs: parsed.logs || [],
         totalForwardedCount: parsed.totalForwardedCount || 0,
       };
-    } else {
-      saveStore();
     }
   } catch (err) {
     console.error('Failed to load store, using default:', err);
@@ -153,21 +151,10 @@ async function callTelegramApi(method: string, body?: Record<string, unknown>, o
   
   let response: Response;
   try {
-    let controller: AbortController | null = null;
-    let signal: AbortSignal;
-    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-      signal = AbortSignal.timeout(8000);
-    } else {
-      controller = new AbortController();
-      signal = controller.signal;
-      setTimeout(() => controller?.abort(), 8000);
-    }
-
     response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
-      signal,
     });
   } catch (networkErr: any) {
     if (networkErr.name === 'AbortError' || networkErr.name === 'TimeoutError') {
