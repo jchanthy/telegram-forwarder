@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Send, Radio, Settings, Trash2, CheckCircle2, AlertCircle, ShieldCheck, Copy, Link as LinkIcon, UserX, ExternalLink, HelpCircle } from 'lucide-react';
+import { Plus, Send, Radio, Settings, Trash2, CheckCircle2, AlertCircle, ShieldCheck, Copy, Link as LinkIcon, UserX, ExternalLink, HelpCircle, Sparkles } from 'lucide-react';
 import type { TargetDestination, ForwardMode } from '../types';
 
 interface TargetDestinationsProps {
@@ -42,6 +42,8 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
   const [removeUsernames, setRemoveUsernames] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
+  const [fetchingName, setFetchingName] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [permChecking, setPermChecking] = useState<string | null>(null);
   const [permResult, setPermResult] = useState<{ id: string; msg: string; isOk: boolean } | null>(null);
@@ -57,6 +59,7 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
     setRemoveLinks(false);
     setRemoveUsernames(false);
     setFormError(null);
+    setFetchError(null);
     setIsModalOpen(true);
   };
 
@@ -71,6 +74,7 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
     setRemoveLinks(target.removeLinks || false);
     setRemoveUsernames(target.removeUsernames || false);
     setFormError(null);
+    setFetchError(null);
     setIsModalOpen(true);
   };
 
@@ -338,9 +342,38 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">
-                    Chat ID or Channel Username <span className="text-rose-400">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-300">
+                      Chat ID or Channel Username <span className="text-rose-400">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!chatId.trim()) return;
+                        setFetchingName(true);
+                        setFetchError(null);
+                        try {
+                          const res = await onCheckPermissions(chatId.trim());
+                          if (res.success && res.chat?.title) {
+                            setName(res.chat.title);
+                            if (res.chat.type === 'channel') setIsChannel(true);
+                            if (['group', 'supergroup'].includes(res.chat.type)) setIsChannel(false);
+                          } else {
+                            setFetchError(res.error || 'Could not fetch channel name. Verify Bot is in channel/group!');
+                          }
+                        } catch (err: any) {
+                          setFetchError(err.message || 'Failed to fetch details');
+                        } finally {
+                          setFetchingName(false);
+                        }
+                      }}
+                      disabled={fetchingName || !chatId.trim()}
+                      className="text-[11px] text-sky-400 hover:text-sky-300 flex items-center space-x-1 disabled:opacity-40 font-medium"
+                    >
+                      <Sparkles className={`w-3 h-3 ${fetchingName ? 'animate-spin' : ''}`} />
+                      <span>{fetchingName ? 'Fetching Title...' : '⚡ Auto-Fetch Title'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={chatId}
@@ -348,6 +381,12 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
                     placeholder="e.g. @mychannel or -1001987654321"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-slate-100 font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500"
                   />
+                  {fetchError && (
+                    <p className="text-[11px] text-amber-400 mt-1 flex items-center space-x-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      <span>{fetchError}</span>
+                    </p>
+                  )}
                 </div>
 
                 {/* Destination Type & Forwarding Mode */}
