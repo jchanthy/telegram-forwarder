@@ -153,12 +153,21 @@ async function callTelegramApi(method: string, body?: Record<string, unknown>, o
   
   let response: Response;
   try {
-    // 8-second timeout for Telegram API requests so cloud run proxies never time out
+    let controller: AbortController | null = null;
+    let signal: AbortSignal;
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      signal = AbortSignal.timeout(8000);
+    } else {
+      controller = new AbortController();
+      signal = controller.signal;
+      setTimeout(() => controller?.abort(), 8000);
+    }
+
     response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(8000),
+      signal,
     });
   } catch (networkErr: any) {
     if (networkErr.name === 'AbortError' || networkErr.name === 'TimeoutError') {
