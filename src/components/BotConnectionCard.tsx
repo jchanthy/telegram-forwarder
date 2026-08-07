@@ -182,6 +182,12 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
               <span>{testError}</span>
             </p>
           )}
+          {testResult && !testError && (
+            <p className="text-xs text-emerald-400 flex items-center space-x-1 mt-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Connected successfully as <strong>@{testResult.username}</strong> ({testResult.first_name})</span>
+            </p>
+          )}
         </div>
 
         {/* Real-time Listening Mode */}

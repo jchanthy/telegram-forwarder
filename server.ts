@@ -18,7 +18,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Persistence file path
-const DATA_DIR = path.join(process.cwd(), 'data');
+const IS_VERCEL = !!(process.env.VERCEL || process.env.VERCEL_ENV);
+const DATA_DIR = IS_VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
 let STORE_FILE = path.join(DATA_DIR, 'store.json');
 
 // Ensure data directory exists safely
@@ -429,6 +430,7 @@ async function processIncomingUpdate(update: any) {
 
 // Background Telegram Polling Loop
 function startPollingLoop() {
+  if (process.env.VERCEL || process.env.VERCEL_ENV) return;
   if (isPollingRunning) return;
   isPollingRunning = true;
 
@@ -477,7 +479,7 @@ function stopPollingLoop() {
 }
 
 // Initial Bot check & start polling (only on persistent Node server, not on Vercel serverless)
-if (!process.env.VERCEL && store.config.botToken && store.config.isPollingActive) {
+if (!process.env.VERCEL && !process.env.VERCEL_ENV && store.config.botToken && store.config.isPollingActive) {
   fetchBotInfo().then(() => {
     startPollingLoop();
   }).catch(() => {});
