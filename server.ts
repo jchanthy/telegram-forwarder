@@ -123,15 +123,29 @@ function loadStore() {
       const data = fs.readFileSync(STORE_FILE, 'utf-8');
       const parsed = JSON.parse(data);
 
-      // Merge saved target settings with envTargets (preserving isActive toggle state)
-      let loadedTargets: TargetDestination[] = parsed.targets || defaultStore.targets;
-      if (envTargets.length > 0 && parsed.targets) {
-        loadedTargets = defaultStore.targets.map(defaultT => {
-          const matched = parsed.targets.find((pt: TargetDestination) => 
-            pt.id === defaultT.id || pt.chatId.toLowerCase() === defaultT.chatId.toLowerCase()
-          );
-          return matched ? { ...defaultT, ...matched } : defaultT;
+      let loadedTargets: TargetDestination[] = defaultStore.targets;
+
+      if (Array.isArray(parsed.targets) && parsed.targets.length > 0) {
+        // Build map of saved target state by clean chatId
+        const savedMap = new Map<string, TargetDestination>();
+        for (const pt of parsed.targets) {
+          if (pt.chatId) savedMap.set(pt.chatId.toLowerCase(), pt);
+          if (pt.id) savedMap.set(pt.id.toLowerCase(), pt);
+        }
+
+        // Merge default/env targets with saved user preferences
+        loadedTargets = defaultStore.targets.map(dt => {
+          const matched = savedMap.get(dt.chatId.toLowerCase()) || savedMap.get(dt.id.toLowerCase());
+          return matched ? { ...dt, ...matched } : dt;
         });
+
+        // Also append any extra custom targets added via UI that are not in envTargets
+        for (const pt of parsed.targets) {
+          const exists = loadedTargets.some(lt => lt.chatId.toLowerCase() === pt.chatId.toLowerCase());
+          if (!exists) {
+            loadedTargets.push(pt);
+          }
+        }
       }
 
       store = {
