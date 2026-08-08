@@ -203,9 +203,9 @@ async function connectMongoDB() {
   if (!mongoUri) return;
   try {
     if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(mongoUri);
+      await mongoose.connect(mongoUri, { dbName: 'telegram_forwarder' });
       isMongoConnected = true;
-      console.log('✅ Successfully connected to MongoDB Database!');
+      console.log('✅ Successfully connected to MongoDB Database (telegram_forwarder)!');
       await loadStoreFromMongo();
     }
   } catch (err: any) {
