@@ -42,7 +42,7 @@ interface DataStore {
   totalForwardedCount: number;
 }
 
-// Parse default targets from FORWARD_TARGET_CHATS env var if provided (e.g. "@mychan1, -1001835121250:My Group")
+// Parse default targets from FORWARD_TARGET_CHATS env var if provided (e.g. "@mychan1:off, -1001835121250:My Group:off")
 const envTargets: TargetDestination[] = (process.env.FORWARD_TARGET_CHATS || '')
   .split(',')
   .map(item => item.trim())
@@ -50,14 +50,28 @@ const envTargets: TargetDestination[] = (process.env.FORWARD_TARGET_CHATS || '')
   .map((item) => {
     const parts = item.split(':');
     const chatId = parts[0].trim();
-    const name = parts[1]?.trim() || chatId;
+    
+    // Check if user specified :off / :disabled in env var
+    let isActive = true;
+    let name = chatId;
+
+    if (parts.length > 1) {
+      const lastPart = parts[parts.length - 1].trim().toLowerCase();
+      if (['off', 'disabled', 'false', '0', 'inactive'].includes(lastPart)) {
+        isActive = false;
+        name = parts.slice(1, -1).join(':').trim() || chatId;
+      } else {
+        name = parts.slice(1).join(':').trim() || chatId;
+      }
+    }
+
     const stableId = `target-env-${chatId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
     return {
       id: stableId,
       name,
       chatId,
       isChannel: chatId.startsWith('@') || !chatId.startsWith('-100'),
-      isActive: true,
+      isActive,
       forwardMode: 'copy',
       createdAt: new Date().toISOString(),
     };
