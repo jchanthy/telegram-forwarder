@@ -26,6 +26,10 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
   const [globalFooter, setGlobalFooter] = useState('');
 
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'openai' | 'deepseek' | 'custom'>('gemini');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiModel, setAiModel] = useState('');
+  const [aiCustomEndpoint, setAiCustomEndpoint] = useState('');
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<BotInfo | null>(null);
@@ -41,6 +45,10 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
       setIsWebhookActive(config.isWebhookActive ?? false);
       setGlobalHeader(config.globalHeader || '');
       setGlobalFooter(config.globalFooter || '');
+      if (config.aiProvider) setAiProvider(config.aiProvider);
+      if (config.aiApiKey) setAiApiKey(config.aiApiKey);
+      if (config.aiModel) setAiModel(config.aiModel);
+      if (config.aiCustomEndpoint) setAiCustomEndpoint(config.aiCustomEndpoint);
     }
   }, [config]);
 
@@ -83,6 +91,10 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
         isWebhookActive,
         globalHeader,
         globalFooter,
+        aiProvider,
+        aiApiKey,
+        aiModel,
+        aiCustomEndpoint,
       });
 
       setSuccessMsg('Settings and Bot Credentials saved successfully!');
@@ -311,6 +323,78 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
                 : '🔓 Anyone with your URL can edit settings. Enter a password above to lock it.'}
             </p>
           </div>
+        </div>
+
+        {/* AI Generator Settings */}
+        <div className="border-t border-slate-800 pt-6 space-y-4">
+          <div>
+            <h4 className="text-sm font-semibold text-slate-200 flex items-center space-x-2">
+              <Sparkles className="w-4 h-4 text-sky-400" />
+              <span>AI Topic & Content Generator Configuration</span>
+            </h4>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Configure your API keys (Google Gemini, DeepSeek, OpenAI) to enable AI content generation in the Manual Broadcast Studio.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">AI Provider</label>
+              <select
+                value={aiProvider}
+                onChange={(e) => setAiProvider(e.target.value as any)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-sky-500"
+              >
+                <option value="gemini">Google Gemini AI</option>
+                <option value="deepseek">DeepSeek AI</option>
+                <option value="openai">OpenAI (ChatGPT)</option>
+                <option value="custom">Custom OpenAI-Compatible API</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Model Name</label>
+              <input
+                type="text"
+                value={aiModel}
+                onChange={(e) => setAiModel(e.target.value)}
+                placeholder={
+                  aiProvider === 'gemini'
+                    ? 'e.g. gemini-1.5-flash'
+                    : aiProvider === 'deepseek'
+                    ? 'e.g. deepseek-chat'
+                    : 'e.g. gpt-4o-mini'
+                }
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              AI API Key ({aiProvider.toUpperCase()})
+            </label>
+            <input
+              type="password"
+              value={aiApiKey}
+              onChange={(e) => setAiApiKey(e.target.value)}
+              placeholder="Paste your AI API Key here..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono"
+            />
+          </div>
+
+          {aiProvider === 'custom' && (
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1">Custom API Endpoint URL</label>
+              <input
+                type="text"
+                value={aiCustomEndpoint}
+                onChange={(e) => setAiCustomEndpoint(e.target.value)}
+                placeholder="https://your-custom-ai-endpoint.com/v1/chat/completions"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono"
+              />
+            </div>
+          )}
         </div>
 
         {/* Global Footer & Header Appends */}

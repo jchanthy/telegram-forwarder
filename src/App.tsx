@@ -199,15 +199,22 @@ export default function App() {
     customHeader?: string;
     customFooter?: string;
   }) => {
-    const res = await fetch('/api/test-forward', {
+    const res = await safeApiFetch('/api/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
     await fetchData();
-    return data;
+    return res;
+  };
+
+  const handleGenerateAiContent = async (payload: { topic: string; style?: string; language?: string }): Promise<string> => {
+    const res = await safeApiFetch('/api/ai/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return res.text;
   };
 
   const handleSimulateMessage = async (payload: any) => {
@@ -501,7 +508,11 @@ export default function App() {
 
         {/* Broadcast Studio Tab */}
         {activeTab === 'broadcast' && (
-          <BroadcastTester targets={targets} onSendBroadcast={handleSendBroadcast} />
+          <BroadcastTester
+            targets={targets}
+            onSendBroadcast={handleSendBroadcast}
+            onGenerateAiContent={handleGenerateAiContent}
+          />
         )}
 
         {/* Simulator Tab */}

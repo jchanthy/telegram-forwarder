@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Zap, Send, CheckCircle2, AlertCircle, RefreshCw, Layers } from 'lucide-react';
+import { Zap, Send, CheckCircle2, AlertCircle, RefreshCw, Layers, Sparkles, Wand2 } from 'lucide-react';
 import type { TargetDestination, TargetResult } from '../types';
 
 interface BroadcastTesterProps {
@@ -10,19 +10,53 @@ interface BroadcastTesterProps {
     customHeader?: string;
     customFooter?: string;
   }) => Promise<{ success: boolean; results: TargetResult[]; successCount: number; total: number }>;
+  onGenerateAiContent?: (payload: { topic: string; style?: string; language?: string }) => Promise<string>;
 }
 
-export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSendBroadcast }) => {
+export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSendBroadcast, onGenerateAiContent }) => {
   const [text, setText] = useState('');
   const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
   const [customHeader, setCustomHeader] = useState('');
   const [customFooter, setCustomFooter] = useState('');
+
+  // AI Generator State
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiLanguage, setAiLanguage] = useState('English');
+  const [aiStyle, setAiStyle] = useState('Engaging & Professional');
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<{ successCount: number; total: number; list: TargetResult[] } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const activeTargets = targets.filter(t => t.isActive);
+
+  const handleGenerateAi = async () => {
+    if (!aiTopic.trim()) {
+      setAiError('Please enter a topic or prompt for AI.');
+      return;
+    }
+    if (!onGenerateAiContent) {
+      setAiError('AI generation handler not available.');
+      return;
+    }
+
+    setGeneratingAi(true);
+    setAiError(null);
+    try {
+      const generated = await onGenerateAiContent({
+        topic: aiTopic.trim(),
+        style: aiStyle,
+        language: aiLanguage,
+      });
+      setText(generated);
+    } catch (err: any) {
+      setAiError(err.message || 'AI generation failed');
+    } finally {
+      setGeneratingAi(false);
+    }
+  };
 
   const handleToggleTarget = (id: string) => {
     if (selectedTargetIds.includes(id)) {
@@ -90,12 +124,89 @@ export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSen
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Composer Form */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-100 shadow-md space-y-5">
-          <form onSubmit={handleSend} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Message Content (HTML formatting supported)
-              </label>
+        <div className="lg:col-span-2 space-y-6">
+          {/* AI Content Assistant Panel */}
+          <div className="bg-gradient-to-r from-sky-950/40 via-slate-900 to-slate-900 border border-sky-500/30 rounded-2xl p-5 text-slate-100 shadow-md space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-sky-400" />
+                <h3 className="font-bold text-sm text-slate-100">AI Post & Topic Generator</h3>
+              </div>
+              <span className="text-[10px] bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-full font-medium border border-sky-500/30">
+                Gemini / DeepSeek / OpenAI
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <input
+                  type="text"
+                  value={aiTopic}
+                  onChange={(e) => setAiTopic(e.target.value)}
+                  placeholder="Enter topic or prompt (e.g. 5 Tech Trends for 2026, Daily Crypto Market Analysis, New Product Launch)..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Tone & Style</label>
+                  <select
+                    value={aiStyle}
+                    onChange={(e) => setAiStyle(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200"
+                  >
+                    <option value="Engaging & Professional">Engaging & Professional</option>
+                    <option value="Casual & Friendly">Casual & Friendly</option>
+                    <option value="Urgent & Promotional">Urgent & Promotional</option>
+                    <option value="Educational & Detailed">Educational & Detailed</option>
+                    <option value="Short & Punchy Announcement">Short & Punchy Announcement</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Language</label>
+                  <select
+                    value={aiLanguage}
+                    onChange={(e) => setAiLanguage(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200"
+                  >
+                    <option value="English">English</option>
+                    <option value="Khmer">Khmer (ភាសាខ្មែរ)</option>
+                    <option value="French">French (Français)</option>
+                    <option value="Chinese">Chinese (中文)</option>
+                    <option value="Spanish">Spanish (Español)</option>
+                  </select>
+                </div>
+              </div>
+
+              {aiError && (
+                <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                  <span>{aiError}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={handleGenerateAi}
+                  disabled={generatingAi || !aiTopic.trim()}
+                  className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold text-xs shadow-md shadow-sky-500/20 transition-all disabled:opacity-50 flex items-center space-x-1.5"
+                >
+                  <Wand2 className={`w-3.5 h-3.5 ${generatingAi ? 'animate-spin' : ''}`} />
+                  <span>{generatingAi ? 'Generating Post...' : 'Generate Telegram Post'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-slate-100 shadow-md space-y-5">
+            <form onSubmit={handleSend} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                  Message Content (HTML formatting supported)
+                </label>
               <textarea
                 rows={6}
                 value={text}
@@ -177,6 +288,7 @@ export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSen
               </button>
             </div>
           </form>
+        </div>
         </div>
 
         {/* Target Selector Sidebar */}

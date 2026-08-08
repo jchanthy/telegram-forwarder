@@ -599,12 +599,30 @@ app.post('/api/auth/login', (req, res) => {
 
 app.post('/api/config', async (req, res) => {
   try {
-    const { botToken, isPollingActive, isWebhookActive, allowedAdminUsernames, requireAuth, globalHeader, globalFooter, adminPassword } = req.body;
+    const {
+      botToken,
+      isPollingActive,
+      isWebhookActive,
+      allowedAdminUsernames,
+      requireAuth,
+      globalHeader,
+      globalFooter,
+      adminPassword,
+      aiProvider,
+      aiApiKey,
+      aiModel,
+      aiCustomEndpoint,
+    } = req.body;
 
     if (adminPassword !== undefined) {
       store.config.adminPassword = adminPassword.trim();
       store.config.isDashboardProtected = !!adminPassword.trim();
     }
+
+    if (aiProvider !== undefined) store.config.aiProvider = aiProvider;
+    if (aiApiKey !== undefined) store.config.aiApiKey = aiApiKey.trim();
+    if (aiModel !== undefined) store.config.aiModel = aiModel.trim();
+    if (aiCustomEndpoint !== undefined) store.config.aiCustomEndpoint = aiCustomEndpoint.trim();
 
     if (botToken !== undefined && botToken.trim() !== '') {
       const cleanToken = sanitizeBotToken(botToken);
@@ -650,6 +668,93 @@ app.post('/api/config', async (req, res) => {
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to update config' });
+  }
+});
+
+// AI Topic & Message Generator API
+app.post('/api/ai/generate', async (req, res) => {
+  try {
+    const { topic, style, language } = req.body;
+    if (!topic || !topic.trim()) {
+      return res.status(400).json({ error: 'Please enter a topic or keywords for AI generation.' });
+    }
+
+    const provider = store.config.aiProvider || 'gemini';
+    const apiKey = store.config.aiApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.DEEPSEEK_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({
+        error: `API Key for ${provider.toUpperCase()} is not configured. Please enter your AI API Key in Bot Credentials & Settings.`,
+      });
+    }
+
+    const langPrompt = language ? `Write in ${language} language.` : 'Write in English.';
+    const stylePrompt = style ? `Tone and style: ${style}.` : 'Tone: Engaging, professional, suitable for Telegram broadcast.';
+    
+    const promptText = `Act as an expert social media and Telegram content creator.
+Generate a complete, high-converting, nicely formatted Telegram post about the following topic:
+Topic: "${topic.trim()}"
+${langPrompt}
+${stylePrompt}
+
+Use emojis, clear headings, bullet points where relevant, and a call-to-action (CTA) at the end. Use basic HTML tags like <b>bold</b>, <i>italic</i> if useful. Return ONLY the final post content without extra conversational chatter.`;
+
+    let generatedText = '';
+
+    if (provider === 'gemini') {
+      const modelName = store.config.aiModel || 'gemini-1.5-flash';
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const geminiRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+        }),
+      });
+      const data = await geminiRes.json();
+      if (!geminiRes.ok) {
+        throw new Error(data.error?.message || `Gemini API error (HTTP ${geminiRes.status})`);
+      }
+      generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else if (provider === 'openai' || provider === 'deepseek' || provider === 'custom') {
+      let endpoint = 'https://api.openai.com/v1/chat/completions';
+      let modelName = store.config.aiModel || 'gpt-4o-mini';
+
+      if (provider === 'deepseek') {
+        endpoint = 'https://api.deepseek.com/chat/completions';
+        modelName = store.config.aiModel || 'deepseek-chat';
+      } else if (provider === 'custom' && store.config.aiCustomEndpoint) {
+        endpoint = store.config.aiCustomEndpoint;
+      }
+
+      const aiRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages: [{ role: 'user', content: promptText }],
+          temperature: 0.7,
+        }),
+      });
+
+      const data = await aiRes.json();
+      if (!aiRes.ok) {
+        throw new Error(data.error?.message || `AI API error (HTTP ${aiRes.status})`);
+      }
+      generatedText = data.choices?.[0]?.message?.content || '';
+    }
+
+    if (!generatedText) {
+      throw new Error('AI returned an empty response. Please check your topic prompt.');
+    }
+
+    res.json({ success: true, text: generatedText.trim() });
+  } catch (err: any) {
+    console.error('AI Generation Error:', err.message);
+    res.status(400).json({ error: err.message || 'Failed to generate post with AI' });
   }
 });
 

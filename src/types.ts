@@ -75,6 +75,10 @@ export interface AppConfig {
   globalFooter?: string;
   adminPassword?: string;
   isDashboardProtected?: boolean;
+  aiProvider?: 'gemini' | 'openai' | 'deepseek' | 'custom';
+  aiApiKey?: string;
+  aiModel?: string;
+  aiCustomEndpoint?: string;
 }
 
 export interface SystemStatus {
