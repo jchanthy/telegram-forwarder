@@ -421,9 +421,12 @@ export const BotConnectionCard: React.FC<BotConnectionCardProps> = ({
                 type="text"
                 value={globalFooter}
                 onChange={(e) => setGlobalFooter(e.target.value)}
-                placeholder="e.g. 📢 Forwarded via Bot | t.me/mychannel"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500"
+                placeholder='e.g. 📢 Join <a href="https://t.me/mychannel">My Channel</a>'
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono"
               />
+              <p className="text-[11px] text-slate-500 mt-1">
+                💡 <b>HTML Supported:</b> Use <code>&lt;a href="https://t.me/yourchannel"&gt;Clickable Text&lt;/a&gt;</code> to hide full URL behind clickable words.
+              </p>
             </div>
           </div>
         </div>

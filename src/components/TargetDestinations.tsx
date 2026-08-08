@@ -214,15 +214,15 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
                         {target.chatId.startsWith('@') && (
                           <button
                             onClick={() => {
-                              const snippet = `📢 Join ${target.name}: https://t.me/${target.chatId.replace('@', '')}`;
+                              const snippet = `📢 Join <a href="https://t.me/${target.chatId.replace('@', '')}">${target.name}</a>`;
                               navigator.clipboard.writeText(snippet);
-                              alert(`Copied footer snippet to clipboard:\n${snippet}`);
+                              alert(`Copied HTML footer link:\n${snippet}`);
                             }}
                             className="text-[10px] bg-slate-800 hover:bg-slate-700 text-sky-300 px-2 py-0.5 rounded flex items-center space-x-1 transition-colors"
-                            title="Copy professional footer signature snippet"
+                            title="Copy HTML hyperlinked footer snippet"
                           >
                             <Copy className="w-3 h-3" />
-                            <span>Copy Footer Link</span>
+                            <span>Copy HTML Link</span>
                           </button>
                         )}
                       </div>
@@ -280,14 +280,14 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
                         <span className="font-mono text-[11px] text-emerald-200 truncate">{permResult.link}</span>
                         <button
                           onClick={() => {
-                            const footerText = `📢 Join ${target.name}: ${permResult.link}`;
+                            const footerText = `📢 Join <a href="${permResult.link}">${target.name}</a>`;
                             navigator.clipboard.writeText(footerText);
-                            alert(`Copied professional footer signature:\n${footerText}`);
+                            alert(`Copied HTML footer signature:\n${footerText}`);
                           }}
                           className="px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold shrink-0 flex items-center space-x-1"
                         >
                           <Copy className="w-3 h-3" />
-                          <span>Copy Footer Snippet</span>
+                          <span>Copy HTML Footer</span>
                         </button>
                       </div>
                     )}
