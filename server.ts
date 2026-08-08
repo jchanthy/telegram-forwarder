@@ -913,7 +913,7 @@ app.delete('/api/rules/:id', (req, res) => {
 });
 
 // Broadcast / Manual Post Tester
-app.post('/api/test-forward', async (req, res) => {
+app.post(['/api/broadcast', '/api/test-forward'], async (req, res) => {
   try {
     const { text, targetIds, customHeader, customFooter, mode } = req.body;
     if (!text) return res.status(400).json({ error: 'Message text is required.' });
