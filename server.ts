@@ -127,7 +127,7 @@ const defaultStore: DataStore = {
   totalForwardedCount: 0,
 };
 
-// Load or initialize store
+// Initial store instance
 let store: DataStore = defaultStore;
 
 function loadStore() {
@@ -140,10 +140,8 @@ function loadStore() {
       let loadedTargets: TargetDestination[] = defaultStore.targets;
 
       if (Array.isArray(parsed.targets) && parsed.targets.length > 0) {
-        // Start with parsed targets saved in file
         const mergedList: TargetDestination[] = parsed.targets.map(pt => ({ ...pt }));
 
-        // Only append envTargets if they are NOT in parsed.targets at all
         if (envTargets.length > 0) {
           for (const dt of envTargets) {
             const exists = mergedList.some(lt => 
@@ -171,7 +169,84 @@ function loadStore() {
   }
 }
 
+import mongoose from 'mongoose';
+
+// MongoDB Schema for Persistent Storage
+const StoreSchema = new mongoose.Schema({
+  key: { type: String, default: 'app_store', unique: true },
+  config: Object,
+  targets: Array,
+  rules: Array,
+  logs: Array,
+  totalForwardedCount: Number,
+}, { timestamps: true });
+
+const StoreModel = mongoose.models.AppStore || mongoose.model('AppStore', StoreSchema);
+
+let isMongoConnected = false;
+
+// Connect to MongoDB Atlas if MONGODB_URI env var is set
+async function connectMongoDB() {
+  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URL;
+  if (!mongoUri) return;
+  try {
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(mongoUri);
+      isMongoConnected = true;
+      console.log('✅ Successfully connected to MongoDB Database!');
+      await loadStoreFromMongo();
+    }
+  } catch (err: any) {
+    console.error('⚠️ MongoDB Connection Error:', err.message);
+  }
+}
+
+async function loadStoreFromMongo() {
+  try {
+    const doc: any = await StoreModel.findOne({ key: 'app_store' } as any);
+    if (doc) {
+      store = {
+        config: { ...defaultStore.config, ...(doc.config || {}) },
+        targets: (doc.targets && doc.targets.length > 0) ? doc.targets : defaultStore.targets,
+        rules: (doc.rules && doc.rules.length > 0) ? doc.rules : defaultStore.rules,
+        logs: doc.logs || [],
+        totalForwardedCount: doc.totalForwardedCount || 0,
+      };
+      console.log('✅ Loaded persistent settings from MongoDB Database!');
+    }
+  } catch (err: any) {
+    console.error('Failed to load store from MongoDB:', err.message);
+  }
+}
+
+async function saveStoreToMongo() {
+  if (!isMongoConnected && !process.env.MONGODB_URI && !process.env.MONGO_URL) return;
+  try {
+    if (!isMongoConnected) {
+      await connectMongoDB();
+    }
+    if (isMongoConnected) {
+      await StoreModel.findOneAndUpdate(
+        { key: 'app_store' } as any,
+        {
+          config: store.config,
+          targets: store.targets,
+          rules: store.rules,
+          logs: store.logs.slice(0, 100),
+          totalForwardedCount: store.totalForwardedCount,
+        },
+        { upsert: true, new: true }
+      );
+    }
+  } catch (err: any) {
+    console.error('Failed to save to MongoDB:', err.message);
+  }
+}
+
+connectMongoDB();
+
 function saveStore() {
+  saveStoreToMongo();
   if (IS_VERCEL) return;
   try {
     fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2), 'utf-8');
