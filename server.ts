@@ -246,6 +246,19 @@ async function processIncomingUpdate(update: any) {
   const senderName = [fromUser?.first_name, fromUser?.last_name].filter(Boolean).join(' ') || fromUser?.username || 'Unknown Sender';
   const sourceTitle = message.chat?.title || message.forward_from_chat?.title || senderName;
 
+  // Skip if message comes from any of our own target channels to prevent loops & echo forwards
+  const strChatId = String(chatId);
+  const isSelfTarget = store.targets.some(t => {
+    const cleanTargetId = t.chatId.trim();
+    if (cleanTargetId === strChatId) return true;
+    if (message.chat?.username && `@${message.chat.username}`.toLowerCase() === cleanTargetId.toLowerCase()) return true;
+    return false;
+  });
+
+  if (isSelfTarget) {
+    return; // Don't forward messages that the bot or channel members post inside target destination channels
+  }
+
   // Verify auth if required
   if (store.config.requireAuth && store.config.allowedAdminUsernames.length > 0) {
     const isAllowed = username && store.config.allowedAdminUsernames.some(u => 
