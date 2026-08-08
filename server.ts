@@ -22,6 +22,18 @@ const IS_VERCEL = !!(process.env.VERCEL || process.env.VERCEL_ENV || process.env
 const DATA_DIR = IS_VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
 let STORE_FILE = path.join(DATA_DIR, 'store.json');
 
+// Ensure MongoDB database is connected on Vercel Serverless Function invocations
+app.use(async (req, res, next) => {
+  if (IS_VERCEL && !isMongoConnected && (process.env.MONGODB_URI || process.env.MONGO_URL)) {
+    try {
+      await connectMongoDB();
+    } catch (e) {
+      console.warn('Vercel MongoDB connect warning:', e);
+    }
+  }
+  next();
+});
+
 // Ensure data directory exists safely
 if (!IS_VERCEL) {
   try {
