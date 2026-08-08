@@ -42,6 +42,26 @@ interface DataStore {
   totalForwardedCount: number;
 }
 
+// Parse default targets from FORWARD_TARGET_CHATS env var if provided (e.g. "@mychan1, -1001835121250:My Group")
+const envTargets: TargetDestination[] = (process.env.FORWARD_TARGET_CHATS || '')
+  .split(',')
+  .map(item => item.trim())
+  .filter(Boolean)
+  .map((item, idx) => {
+    const parts = item.split(':');
+    const chatId = parts[0].trim();
+    const name = parts[1]?.trim() || chatId;
+    return {
+      id: `target-env-${idx + 1}`,
+      name,
+      chatId,
+      isChannel: chatId.startsWith('@') || !chatId.startsWith('-100'),
+      isActive: true,
+      forwardMode: 'copy',
+      createdAt: new Date().toISOString(),
+    };
+  });
+
 const defaultStore: DataStore = {
   config: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
@@ -57,7 +77,7 @@ const defaultStore: DataStore = {
     adminPassword: process.env.ADMIN_PASSWORD || '',
     isDashboardProtected: !!process.env.ADMIN_PASSWORD,
   },
-  targets: [
+  targets: envTargets.length > 0 ? envTargets : [
     {
       id: 'target-sample-1',
       name: 'Main Announcement Channel',
