@@ -386,6 +386,7 @@ async function processIncomingUpdate(update: any) {
 
         if (finalCaptionOrText.trim() !== rawText.trim()) {
           copyPayload.caption = finalCaptionOrText.trim();
+          copyPayload.parse_mode = 'HTML';
         }
 
         try {
