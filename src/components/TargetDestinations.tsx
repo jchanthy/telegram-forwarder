@@ -46,7 +46,7 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [permChecking, setPermChecking] = useState<string | null>(null);
-  const [permResult, setPermResult] = useState<{ id: string; msg: string; isOk: boolean } | null>(null);
+  const [permResult, setPermResult] = useState<{ id: string; msg: string; isOk: boolean; link?: string } | null>(null);
 
   const openAddModal = () => {
     setEditingId(null);
@@ -119,10 +119,12 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
     try {
       const res = await onCheckPermissions(target.chatId);
       if (res.success) {
+        const link = (res as any).link || (target.chatId.startsWith('@') ? `https://t.me/${target.chatId.replace('@', '')}` : undefined);
         setPermResult({
           id: target.id,
           msg: `Verified! Bot is registered in ${res.chat?.title || target.name} (${res.chat?.type || 'chat'})`,
           isOk: true,
+          link,
         });
       } else {
         setPermResult({
@@ -207,7 +209,23 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
                           {target.isChannel ? 'Channel' : 'Group'}
                         </span>
                       </div>
-                      <p className="font-mono text-xs text-sky-400 mt-0.5">{target.chatId}</p>
+                      <div className="flex items-center space-x-2 mt-0.5">
+                        <p className="font-mono text-xs text-sky-400">{target.chatId}</p>
+                        {target.chatId.startsWith('@') && (
+                          <button
+                            onClick={() => {
+                              const snippet = `📢 Join ${target.name}: https://t.me/${target.chatId.replace('@', '')}`;
+                              navigator.clipboard.writeText(snippet);
+                              alert(`Copied footer snippet to clipboard:\n${snippet}`);
+                            }}
+                            className="text-[10px] bg-slate-800 hover:bg-slate-700 text-sky-300 px-2 py-0.5 rounded flex items-center space-x-1 transition-colors"
+                            title="Copy professional footer signature snippet"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Footer Link</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -249,11 +267,30 @@ export const TargetDestinations: React.FC<TargetDestinationsProps> = ({
 
                 {/* Permission Check Result if triggered */}
                 {permResult && permResult.id === target.id && (
-                  <div className={`mt-3 p-2.5 rounded-xl text-xs flex items-start space-x-2 ${
+                  <div className={`mt-3 p-3 rounded-xl text-xs space-y-2 ${
                     permResult.isOk ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
                   }`}>
-                    {permResult.isOk ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
-                    <span>{permResult.msg}</span>
+                    <div className="flex items-start space-x-2">
+                      {permResult.isOk ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                      <span className="font-medium">{permResult.msg}</span>
+                    </div>
+
+                    {permResult.link && (
+                      <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between">
+                        <span className="font-mono text-[11px] text-emerald-200 truncate">{permResult.link}</span>
+                        <button
+                          onClick={() => {
+                            const footerText = `📢 Join ${target.name}: ${permResult.link}`;
+                            navigator.clipboard.writeText(footerText);
+                            alert(`Copied professional footer signature:\n${footerText}`);
+                          }}
+                          className="px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold shrink-0 flex items-center space-x-1"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copy Footer Snippet</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

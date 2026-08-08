@@ -865,7 +865,18 @@ app.post('/api/targets/check-permission', async (req, res) => {
       }
     }
 
-    res.json({ success: true, chat, isMemberOrAdmin });
+    const title = chat.title || chat.first_name || chatId;
+    const username = chat.username ? `@${chat.username}` : undefined;
+    const link = chat.username ? `https://t.me/${chat.username}` : (chat.invite_link || undefined);
+
+    res.json({
+      success: true,
+      chat,
+      isMemberOrAdmin,
+      title,
+      username,
+      link,
+    });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
