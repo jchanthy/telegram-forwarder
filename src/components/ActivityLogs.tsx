@@ -8,12 +8,14 @@ interface ActivityLogsProps {
   onRefreshLogs: () => void;
 }
 
-export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onClearLogs, onRefreshLogs }) => {
+export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs = [], onClearLogs, onRefreshLogs }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'failed'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
-  const filteredLogs = logs.filter((log) => {
+  const safeLogs = Array.isArray(logs) ? logs : [];
+
+  const filteredLogs = safeLogs.filter((log) => {
     if (statusFilter === 'success' && log.overallStatus !== 'success') return false;
     if (statusFilter === 'failed' && log.overallStatus === 'success') return false;
 
@@ -50,7 +52,7 @@ export const ActivityLogs: React.FC<ActivityLogsProps> = ({ logs, onClearLogs, o
           </button>
           <button
             onClick={onClearLogs}
-            disabled={logs.length === 0}
+            disabled={safeLogs.length === 0}
             className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium transition-colors disabled:opacity-50"
           >
             <Trash2 className="w-3.5 h-3.5" />

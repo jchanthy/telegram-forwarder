@@ -90,9 +90,9 @@ export default function App() {
           setIsAuthenticated(false);
         }
       }
-      setTargets(resTargets || []);
-      setRules(resRules || []);
-      setLogs(resLogs || []);
+      setTargets(Array.isArray(resTargets) ? resTargets : []);
+      setRules(Array.isArray(resRules) ? resRules : []);
+      setLogs(Array.isArray(resLogs) ? resLogs : []);
     } catch (err) {
       console.error('Failed to fetch data:', err);
     } finally {
@@ -121,8 +121,8 @@ export default function App() {
   useEffect(() => {
     fetchData();
     const timer = setInterval(() => {
-      safeApiFetch('/api/status').then(setStatus).catch(() => {});
-      safeApiFetch('/api/logs').then(setLogs).catch(() => {});
+      safeApiFetch('/api/status').then(s => s && setStatus(s)).catch(() => {});
+      safeApiFetch('/api/logs').then(l => Array.isArray(l) && setLogs(l)).catch(() => {});
     }, 6000);
     return () => clearInterval(timer);
   }, []);
