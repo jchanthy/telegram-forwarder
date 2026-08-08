@@ -364,58 +364,86 @@ async function processIncomingUpdate(update: any) {
       let resultMsgId: number | undefined;
 
       if (target.forwardMode === 'native' as any || target.forwardMode === 'forward') {
-        // Native Telegram forwardMessage
-        const res = await callTelegramApi('forwardMessage', {
-          chat_id: target.chatId,
-          from_chat_id: chatId,
-          message_id: message.message_id,
-        });
-        resultMsgId = res.message_id;
+        // Native Telegram forwardMessage / forwardMessages for albums
+        if (message.media_group_id && Array.isArray((message as any)._mediaGroupMessageIds) && (message as any)._mediaGroupMessageIds.length > 1) {
+          const res = await callTelegramApi('forwardMessages', {
+            chat_id: target.chatId,
+            from_chat_id: chatId,
+            message_ids: (message as any)._mediaGroupMessageIds,
+          });
+          resultMsgId = Array.isArray(res) ? res[0]?.message_id : res?.message_id;
+        } else {
+          const res = await callTelegramApi('forwardMessage', {
+            chat_id: target.chatId,
+            from_chat_id: chatId,
+            message_id: message.message_id,
+          });
+          resultMsgId = res.message_id;
+        }
       } else {
         // Copy Mode: Clean copy with headers / footers / text modifications
-        let finalCaptionOrText = textTransform;
-
-        if (target.customHeader) {
-          finalCaptionOrText = `${target.customHeader}\n\n${finalCaptionOrText}`;
-        }
-        if (target.customFooter || ruleAppendSignature || store.config.globalFooter) {
-          const footerStr = [target.customFooter, ruleAppendSignature, store.config.globalFooter].filter(Boolean).join('\n');
-          finalCaptionOrText = `${finalCaptionOrText}\n\n${footerStr}`;
-        }
-
-        if (target.removeLinks) {
-          finalCaptionOrText = finalCaptionOrText.replace(/https?:\/\/[^\s]+/g, '');
-        }
-        if (target.removeUsernames) {
-          finalCaptionOrText = finalCaptionOrText.replace(/@[a-zA-Z0-0_]+/g, '');
-        }
-
-        // Use Telegram copyMessage API (copies media & formatted text cleanly)
-        const copyPayload: Record<string, unknown> = {
-          chat_id: target.chatId,
-          from_chat_id: chatId,
-          message_id: message.message_id,
-        };
-
-        if (finalCaptionOrText.trim() !== rawText.trim()) {
-          copyPayload.caption = finalCaptionOrText.trim();
-          copyPayload.parse_mode = 'HTML';
-        }
-
-        try {
-          const res = await callTelegramApi('copyMessage', copyPayload);
-          resultMsgId = typeof res === 'number' ? res : res.message_id;
-        } catch (copyErr: any) {
-          // Fallback to sendMessage if text-only
-          if (messageType === 'text') {
-            const res = await callTelegramApi('sendMessage', {
+        if (message.media_group_id && Array.isArray((message as any)._mediaGroupMessageIds) && (message as any)._mediaGroupMessageIds.length > 1) {
+          // Use Telegram copyMessages API for albums
+          try {
+            const res = await callTelegramApi('copyMessages', {
               chat_id: target.chatId,
-              text: finalCaptionOrText || rawText || 'Broadcast',
-              parse_mode: 'HTML',
+              from_chat_id: chatId,
+              message_ids: (message as any)._mediaGroupMessageIds,
             });
-            resultMsgId = res.message_id;
-          } else {
-            throw copyErr;
+            resultMsgId = Array.isArray(res) ? res[0]?.message_id : res?.message_id;
+          } catch (copyAlbumErr) {
+            const res = await callTelegramApi('copyMessage', {
+              chat_id: target.chatId,
+              from_chat_id: chatId,
+              message_id: message.message_id,
+            });
+            resultMsgId = typeof res === 'number' ? res : res.message_id;
+          }
+        } else {
+          let finalCaptionOrText = textTransform;
+
+          if (target.customHeader) {
+            finalCaptionOrText = `${target.customHeader}\n\n${finalCaptionOrText}`;
+          }
+          if (target.customFooter || ruleAppendSignature || store.config.globalFooter) {
+            const footerStr = [target.customFooter, ruleAppendSignature, store.config.globalFooter].filter(Boolean).join('\n');
+            finalCaptionOrText = `${finalCaptionOrText}\n\n${footerStr}`;
+          }
+
+          if (target.removeLinks) {
+            finalCaptionOrText = finalCaptionOrText.replace(/https?:\/\/[^\s]+/g, '');
+          }
+          if (target.removeUsernames) {
+            finalCaptionOrText = finalCaptionOrText.replace(/@[a-zA-Z0-0_]+/g, '');
+          }
+
+          // Use Telegram copyMessage API (copies media & formatted text cleanly)
+          const copyPayload: Record<string, unknown> = {
+            chat_id: target.chatId,
+            from_chat_id: chatId,
+            message_id: message.message_id,
+          };
+
+          if (finalCaptionOrText.trim() !== rawText.trim()) {
+            copyPayload.caption = finalCaptionOrText.trim();
+            copyPayload.parse_mode = 'HTML';
+          }
+
+          try {
+            const res = await callTelegramApi('copyMessage', copyPayload);
+            resultMsgId = typeof res === 'number' ? res : res.message_id;
+          } catch (copyErr: any) {
+            // Fallback to sendMessage if text-only
+            if (messageType === 'text') {
+              const res = await callTelegramApi('sendMessage', {
+                chat_id: target.chatId,
+                text: finalCaptionOrText || rawText || 'Broadcast',
+                parse_mode: 'HTML',
+              });
+              resultMsgId = res.message_id;
+            } else {
+              throw copyErr;
+            }
           }
         }
       }
@@ -488,8 +516,32 @@ function startPollingLoop() {
       });
 
       if (Array.isArray(updates) && updates.length > 0) {
+        // Group album items by media_group_id to prevent splitting photo posts
+        const albumGroups = new Map<string, any[]>();
+        const singleUpdates: any[] = [];
+
         for (const update of updates) {
           pollingOffset = update.update_id + 1;
+          const msg = update.message || update.channel_post;
+          if (msg && msg.media_group_id) {
+            const group = albumGroups.get(msg.media_group_id) || [];
+            group.push(update);
+            albumGroups.set(msg.media_group_id, group);
+          } else {
+            singleUpdates.push(update);
+          }
+        }
+
+        // Process album groups first
+        for (const [_, albumUpdates] of albumGroups) {
+          const primaryUpdate = albumUpdates[0];
+          const primaryMsg = primaryUpdate.message || primaryUpdate.channel_post;
+          primaryMsg._mediaGroupMessageIds = albumUpdates.map(u => (u.message || u.channel_post).message_id);
+          await processIncomingUpdate(primaryUpdate);
+        }
+
+        // Process standalone updates
+        for (const update of singleUpdates) {
           await processIncomingUpdate(update);
         }
       }
