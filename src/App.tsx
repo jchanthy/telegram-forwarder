@@ -12,11 +12,18 @@ import { AuthModal } from './components/AuthModal';
 import { Send, Zap, ShieldCheck, Clock, CheckCircle2, AlertTriangle, Radio, Sparkles, ArrowRight, Bot, Key } from 'lucide-react';
 import type { SystemStatus, AppConfig, TargetDestination, ForwardingRule, ForwardLog, BotInfo, TargetResult } from './types';
 
+// API Base URL (Routes to Render backend if running on Vercel)
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 
+  (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') 
+    ? 'https://telegram-forwarder-qswh.onrender.com' 
+    : '');
+
 // Safe fetch helper to handle non-JSON or HTML error responses gracefully
 async function safeApiFetch<T = any>(url: string, options?: RequestInit): Promise<T> {
   let res: Response;
+  const fullUrl = url.startsWith('/api') ? `${API_BASE_URL}${url}` : url;
   try {
-    res = await fetch(url, options);
+    res = await fetch(fullUrl, options);
   } catch (networkErr: any) {
     throw new Error(`Server connection error: ${networkErr.message || 'Unable to reach backend'}`);
   }
