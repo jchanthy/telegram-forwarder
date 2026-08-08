@@ -47,12 +47,13 @@ const envTargets: TargetDestination[] = (process.env.FORWARD_TARGET_CHATS || '')
   .split(',')
   .map(item => item.trim())
   .filter(Boolean)
-  .map((item, idx) => {
+  .map((item) => {
     const parts = item.split(':');
     const chatId = parts[0].trim();
     const name = parts[1]?.trim() || chatId;
+    const stableId = `target-env-${chatId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
     return {
-      id: `target-env-${idx + 1}`,
+      id: stableId,
       name,
       chatId,
       isChannel: chatId.startsWith('@') || !chatId.startsWith('-100'),
@@ -121,9 +122,21 @@ function loadStore() {
     if (fs.existsSync(STORE_FILE)) {
       const data = fs.readFileSync(STORE_FILE, 'utf-8');
       const parsed = JSON.parse(data);
+
+      // Merge saved target settings with envTargets (preserving isActive toggle state)
+      let loadedTargets: TargetDestination[] = parsed.targets || defaultStore.targets;
+      if (envTargets.length > 0 && parsed.targets) {
+        loadedTargets = defaultStore.targets.map(defaultT => {
+          const matched = parsed.targets.find((pt: TargetDestination) => 
+            pt.id === defaultT.id || pt.chatId.toLowerCase() === defaultT.chatId.toLowerCase()
+          );
+          return matched ? { ...defaultT, ...matched } : defaultT;
+        });
+      }
+
       store = {
         config: { ...defaultStore.config, ...parsed.config },
-        targets: parsed.targets || defaultStore.targets,
+        targets: loadedTargets,
         rules: parsed.rules || defaultStore.rules,
         logs: parsed.logs || [],
         totalForwardedCount: parsed.totalForwardedCount || 0,
