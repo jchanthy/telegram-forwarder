@@ -678,13 +678,13 @@ app.post('/api/config', async (req, res) => {
 // AI Topic & Message Generator API
 app.post('/api/ai/generate', async (req, res) => {
   try {
-    const { topic, style, language } = req.body;
+    const { topic, style, language, provider: reqProvider } = req.body;
     if (!topic || !topic.trim()) {
       return res.status(400).json({ error: 'Please enter a topic or keywords for AI generation.' });
     }
 
-    const provider = store.config.aiProvider || 'gemini';
-    const apiKey = store.config.aiApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.DEEPSEEK_API_KEY;
+    const provider = reqProvider || store.config.aiProvider || 'gemini';
+    const apiKey = store.config.aiApiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.AI_API_KEY;
 
     if (!apiKey) {
       return res.status(400).json({

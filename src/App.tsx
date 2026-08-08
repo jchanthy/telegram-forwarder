@@ -208,7 +208,7 @@ export default function App() {
     return res;
   };
 
-  const handleGenerateAiContent = async (payload: { topic: string; style?: string; language?: string }): Promise<string> => {
+  const handleGenerateAiContent = async (payload: { topic: string; style?: string; language?: string; provider?: string }): Promise<string> => {
     const res = await safeApiFetch('/api/ai/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

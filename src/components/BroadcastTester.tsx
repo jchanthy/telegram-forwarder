@@ -10,7 +10,7 @@ interface BroadcastTesterProps {
     customHeader?: string;
     customFooter?: string;
   }) => Promise<{ success: boolean; results: TargetResult[]; successCount: number; total: number }>;
-  onGenerateAiContent?: (payload: { topic: string; style?: string; language?: string }) => Promise<string>;
+  onGenerateAiContent?: (payload: { topic: string; style?: string; language?: string; provider?: string }) => Promise<string>;
 }
 
 export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSendBroadcast, onGenerateAiContent }) => {
@@ -20,6 +20,7 @@ export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSen
   const [customFooter, setCustomFooter] = useState('');
 
   // AI Generator State
+  const [aiEngine, setAiEngine] = useState<'gemini' | 'openai' | 'deepseek'>('gemini');
   const [aiTopic, setAiTopic] = useState('');
   const [aiLanguage, setAiLanguage] = useState('English');
   const [aiStyle, setAiStyle] = useState('Engaging & Professional');
@@ -49,6 +50,7 @@ export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSen
         topic: aiTopic.trim(),
         style: aiStyle,
         language: aiLanguage,
+        provider: aiEngine,
       });
       setText(generated);
     } catch (err: any) {
@@ -148,7 +150,20 @@ export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSen
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-400 mb-1">AI Engine</label>
+                  <select
+                    value={aiEngine}
+                    onChange={(e) => setAiEngine(e.target.value as any)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200"
+                  >
+                    <option value="gemini">Google Gemini</option>
+                    <option value="deepseek">DeepSeek AI</option>
+                    <option value="openai">OpenAI (ChatGPT)</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-medium text-slate-400 mb-1">Tone & Style</label>
                   <select
