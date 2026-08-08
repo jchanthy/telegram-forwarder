@@ -305,11 +305,12 @@ async function processIncomingUpdate(update: any) {
     return;
   }
 
-  // Active rules evaluation
+  // Active rules evaluation & target resolution
   const activeRules = store.rules.filter(r => r.isActive);
   let shouldForward = true;
   let textTransform = rawText;
   let ruleAppendSignature = '';
+  let specificTargetIds: string[] | null = null;
 
   for (const rule of activeRules) {
     // Content type check
@@ -348,6 +349,11 @@ async function processIncomingUpdate(update: any) {
     if (rule.appendSignature) {
       ruleAppendSignature += '\n' + rule.appendSignature;
     }
+
+    if (rule.targetIds && rule.targetIds.length > 0) {
+      if (!specificTargetIds) specificTargetIds = [];
+      specificTargetIds.push(...rule.targetIds);
+    }
   }
 
   if (!shouldForward) {
@@ -355,11 +361,21 @@ async function processIncomingUpdate(update: any) {
     return;
   }
 
+  // Filter active targets (strictly exclude disabled targets, and filter by specific rule targetIds if configured)
+  const targetsToForward = specificTargetIds && specificTargetIds.length > 0
+    ? activeTargets.filter(t => t.isActive && specificTargetIds!.includes(t.id))
+    : activeTargets.filter(t => t.isActive);
+
+  if (targetsToForward.length === 0) {
+    console.log('No active targets matching criteria.');
+    return;
+  }
+
   // Forward to targets
   const targetResults: TargetResult[] = [];
   let successCount = 0;
 
-  for (const target of activeTargets) {
+  for (const target of targetsToForward) {
     try {
       let resultMsgId: number | undefined;
 
