@@ -76,6 +76,10 @@ const defaultStore: DataStore = {
     globalFooter: ' forwarded via Bot',
     adminPassword: process.env.ADMIN_PASSWORD || '',
     isDashboardProtected: !!process.env.ADMIN_PASSWORD,
+    aiProvider: (process.env.AI_PROVIDER as any) || 'gemini',
+    aiApiKey: process.env.AI_API_KEY || process.env.GEMINI_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || '',
+    aiModel: process.env.AI_MODEL || '',
+    aiCustomEndpoint: process.env.AI_CUSTOM_ENDPOINT || '',
   },
   targets: envTargets.length > 0 ? envTargets : [
     {
