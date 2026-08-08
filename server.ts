@@ -140,24 +140,18 @@ function loadStore() {
       let loadedTargets: TargetDestination[] = defaultStore.targets;
 
       if (Array.isArray(parsed.targets) && parsed.targets.length > 0) {
-        // Build map of saved target state by clean chatId
-        const savedMap = new Map<string, TargetDestination>();
-        for (const pt of parsed.targets) {
-          if (pt.chatId) savedMap.set(pt.chatId.trim().toLowerCase(), pt);
-          if (pt.id) savedMap.set(pt.id.trim().toLowerCase(), pt);
-        }
+        // Start with parsed targets saved in file
+        const mergedList: TargetDestination[] = parsed.targets.map(pt => ({ ...pt }));
 
-        // Start with parsed targets as baseline so toggled off states (isActive: false) are preserved!
-        const mergedList: TargetDestination[] = [...parsed.targets];
-
-        // Add any missing envTargets if new ones were added to environment variables
-        for (const dt of defaultStore.targets) {
-          const exists = mergedList.some(lt => 
-            lt.chatId.trim().toLowerCase() === dt.chatId.trim().toLowerCase() ||
-            lt.id.trim().toLowerCase() === dt.id.trim().toLowerCase()
-          );
-          if (!exists) {
-            mergedList.push(dt);
+        // Only append envTargets if they are NOT in parsed.targets at all
+        if (envTargets.length > 0) {
+          for (const dt of envTargets) {
+            const exists = mergedList.some(lt => 
+              lt.chatId.trim().toLowerCase() === dt.chatId.trim().toLowerCase()
+            );
+            if (!exists) {
+              mergedList.push(dt);
+            }
           }
         }
 
