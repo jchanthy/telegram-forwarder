@@ -129,23 +129,25 @@ function loadStore() {
         // Build map of saved target state by clean chatId
         const savedMap = new Map<string, TargetDestination>();
         for (const pt of parsed.targets) {
-          if (pt.chatId) savedMap.set(pt.chatId.toLowerCase(), pt);
-          if (pt.id) savedMap.set(pt.id.toLowerCase(), pt);
+          if (pt.chatId) savedMap.set(pt.chatId.trim().toLowerCase(), pt);
+          if (pt.id) savedMap.set(pt.id.trim().toLowerCase(), pt);
         }
 
-        // Merge default/env targets with saved user preferences
-        loadedTargets = defaultStore.targets.map(dt => {
-          const matched = savedMap.get(dt.chatId.toLowerCase()) || savedMap.get(dt.id.toLowerCase());
-          return matched ? { ...dt, ...matched } : dt;
-        });
+        // Start with parsed targets as baseline so toggled off states (isActive: false) are preserved!
+        const mergedList: TargetDestination[] = [...parsed.targets];
 
-        // Also append any extra custom targets added via UI that are not in envTargets
-        for (const pt of parsed.targets) {
-          const exists = loadedTargets.some(lt => lt.chatId.toLowerCase() === pt.chatId.toLowerCase());
+        // Add any missing envTargets if new ones were added to environment variables
+        for (const dt of defaultStore.targets) {
+          const exists = mergedList.some(lt => 
+            lt.chatId.trim().toLowerCase() === dt.chatId.trim().toLowerCase() ||
+            lt.id.trim().toLowerCase() === dt.id.trim().toLowerCase()
+          );
           if (!exists) {
-            loadedTargets.push(pt);
+            mergedList.push(dt);
           }
         }
+
+        loadedTargets = mergedList;
       }
 
       store = {
