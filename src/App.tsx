@@ -509,6 +509,7 @@ export default function App() {
         {/* Broadcast Studio Tab */}
         {activeTab === 'broadcast' && (
           <BroadcastTester
+            config={config}
             targets={targets}
             onSendBroadcast={handleSendBroadcast}
             onGenerateAiContent={handleGenerateAiContent}

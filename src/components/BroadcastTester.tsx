@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Zap, Send, CheckCircle2, AlertCircle, RefreshCw, Layers, Sparkles, Wand2 } from 'lucide-react';
-import type { TargetDestination, TargetResult } from '../types';
+import type { AppConfig, TargetDestination, TargetResult } from '../types';
 
 interface BroadcastTesterProps {
+  config?: AppConfig | null;
   targets: TargetDestination[];
   onSendBroadcast: (payload: {
     text: string;
@@ -13,11 +14,18 @@ interface BroadcastTesterProps {
   onGenerateAiContent?: (payload: { topic: string; style?: string; language?: string; provider?: string }) => Promise<string>;
 }
 
-export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ targets, onSendBroadcast, onGenerateAiContent }) => {
+export const BroadcastTester: React.FC<BroadcastTesterProps> = ({ config, targets, onSendBroadcast, onGenerateAiContent }) => {
   const [text, setText] = useState('');
   const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
-  const [customHeader, setCustomHeader] = useState('');
-  const [customFooter, setCustomFooter] = useState('');
+  const [customHeader, setCustomHeader] = useState(config?.globalHeader || '');
+  const [customFooter, setCustomFooter] = useState(config?.globalFooter || '');
+
+  useEffect(() => {
+    if (config) {
+      if (config.globalHeader && !customHeader) setCustomHeader(config.globalHeader);
+      if (config.globalFooter && !customFooter) setCustomFooter(config.globalFooter);
+    }
+  }, [config]);
 
   // AI Generator State
   const [aiEngine, setAiEngine] = useState<'gemini' | 'openai' | 'deepseek'>('gemini');
